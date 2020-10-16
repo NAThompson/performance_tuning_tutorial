@@ -96,6 +96,7 @@ There are lots of great performance analysis tools (Intel VTune, Score-P, tau), 
 - No need to vandalize souce code, or be constrained to work with a set of specific languages
 - Text gui, so easy to use in terminal and over `ssh`
 - Available on any Linux system, in particular Summit, SNS nodes
+- Not tied to x86
 
 ---
 
@@ -105,6 +106,7 @@ There are lots of great performance analysis tools (Intel VTune, Score-P, tau), 
 - Awkward to simultaneously monitor multiple MPI ranks
 - High levels of education needed to make `perf` output actionable
 - *Only* available on Linux
+- Significant limitations when profiling GPUs
 
 ---
 
@@ -142,8 +144,134 @@ int main(int argc, char** argv) {
 
 ---
 
+# Running the MWE under `perf`
+
+```bash
+$ make dot
+$ perf stat ./dot 100000000
+a.b = 9.99999e+07
+
+ Performance counter stats for './dot 100000000':
+
+          3,782.94 msec task-clock:u              #    1.000 CPUs utilized          
+                 0      context-switches:u        #    0.000 K/sec                  
+                 0      cpu-migrations:u          #    0.000 K/sec                  
+           600,334      page-faults:u             #    0.159 M/sec                  
+     5,746,594,234      cycles:u                  #    1.519 GHz                    
+     8,601,976,669      instructions:u            #    1.50  insn per cycle         
+     1,200,846,522      branches:u                #  317.437 M/sec                  
+            10,231      branch-misses:u           #    0.00% of all branches        
+
+       3.784742173 seconds time elapsed
+
+       2.530558000 seconds user
+       1.247303000 seconds sys
+```
+
+---
+
+# Learning from `perf stat`
+
+- 1.5 instructions/cycle means we're probably CPU bound. (But don't make the mistake of thinking CPU-bound = WINNING)
+- Our branch miss rate is really good!
+
+But it's not super informative, nor is it actionable.
+
+---
+
+# Learning from `perf stat`
+
+`perf` is designed for kernel developers, so the `perf stat` defaults are for them.
+
+At ORNL, we're HPC developers, so let's make some changes. What stats do we have available?
+
+---
+
+```
+$ perf list
+List of pre-defined events (to be used in -e):
+
+  branch-misses                                      [Hardware event]
+  cache-misses                                       [Hardware event]
+  cache-references                                   [Hardware event]
+  instructions                                       [Hardware event]
+  task-clock                                         [Software event]
+
+  L1-dcache-load-misses                              [Hardware cache event]
+  L1-dcache-loads                                    [Hardware cache event]
+  LLC-load-misses                                    [Hardware cache event]
+  LLC-loads                                          [Hardware cache event]
+
+  cache-misses OR cpu/cache-misses/                  [Kernel PMU event]
+  cache-references OR cpu/cache-references/          [Kernel PMU event]
+  power/energy-cores/                                [Kernel PMU event]
+  power/energy-pkg/                                  [Kernel PMU event]
+  power/energy-ram/                                  [Kernel PMU event]
+```
+
+---
+
+# Custom events:
+
+```
+perf stat -e instructions,cycles,L1-dcache-load-misses,L1-dcache-loads,LLC-load-misses,LLC-loads ./dot 100000000
+a.b = 9.99999e+07
+
+ Performance counter stats for './dot 100000000':
+
+     8,564,368,466      instructions:u            #    1.41  insn per cycle           (49.98%)
+     6,060,955,584      cycles:u                                                      (66.65%)
+        34,089,080      L1-dcache-load-misses:u   #    0.90% of all L1-dcache hits    (83.34%)
+     3,805,929,303      L1-dcache-loads:u                                             (83.32%)
+           854,522      LLC-load-misses:u         #   39.87% of all LL-cache hits     (33.31%)
+         2,143,437      LLC-loads:u                                                   (33.31%)
+
+       5.045450844 seconds time elapsed
+
+       2.856660000 seconds user
+       2.185739000 seconds sys
+```
+
+Hmm . . . 40% LL cache miss rate, yet 1.4 instructions/cycle.
+
+This CPU-bound vs memory-bound is a bit complicated . . . 
+
+---
 
 
+```
+$ perf list
+  cycle_activity.stalls_l1d_pending                 
+       [Execution stalls due to L1 data cache misses]
+  cycle_activity.stalls_l2_pending                  
+       [Execution stalls due to L2 cache misses]
+  cycle_activity.stalls_ldm_pending                 
+       [Execution stalls due to memory subsystem]
+$ perf stat -e cycle_activity.stalls_ldm_pending,cycle_activity.stalls_l2_pending,cycle_activity.stalls_l1d_pending,cycles ./dot 10000000
+a.b = 9.99999e+07
+
+ Performance counter stats for './dot 100000000':
+
+       509,998,525      cycle_activity.stalls_ldm_pending:u                                   
+       127,137,070      cycle_activity.stalls_l2_pending:u                                   
+        70,555,574      cycle_activity.stalls_l1d_pending:u                                   
+     5,708,220,052      cycles:u                                                    
+
+       3.637099623 seconds time elapsed
+
+       2.463966000 seconds user
+       1.172459000 seconds sys
+```
+
+1/10th of the cycles are stalled due to memory pressure.
+
+---
+
+# `perf stat` is great for reporting . . .
+
+But not super actionable.
+
+---
 
 # Before running perf
 

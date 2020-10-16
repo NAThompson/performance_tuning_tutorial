@@ -86,7 +86,7 @@ data  Desktop  Documents  Downloads  Music  Pictures  Public  Templates  TIS  Vi
 
 # Why `perf`?
 
-There are lots of great performance analysis tools (Intel VTune, Score-P, tau), but my opinion is that `perf` should be the first tool you reach for.
+There are lots of great performance analysis tools (Intel VTune, Score-P, tau, cachegrind), but my opinion is that `perf` should be the first tool you reach for.
 
 ---
 
@@ -97,6 +97,7 @@ There are lots of great performance analysis tools (Intel VTune, Score-P, tau), 
 - Text gui, so easy to use in terminal and over `ssh`
 - Available on any Linux system, in particular Summit, SNS nodes
 - Not tied to x86
+- Samples rather than models your program
 
 ---
 
@@ -111,6 +112,7 @@ There are lots of great performance analysis tools (Intel VTune, Score-P, tau), 
 ---
 
 ### `src/mwe.cpp`
+
 ```cpp
 #include <iostream>
 #include <vector>
@@ -324,11 +326,38 @@ Consequence: Lots of time spent moving data around.
 -g -O3 -ffast-math -fno-finite-math-only -march=native
 ```
 
+Add `-fno-omit-frame-pointer` for performance analysis.
+
 How does that look on [godbolt](https://godbolt.org/z/4dnfYb)?
+
+Key instruction: `vfmadd132pd`; vectorized fused multiply add on `ymm`/`zmm` registers.
 
 ---
 
+```
+$ perf stat ./dot 100000000     
+a.b = 9.99999e+07
 
+ Performance counter stats for './dot 100000000':
+
+          2,428.06 msec task-clock:u              #    0.998 CPUs utilized          
+                 0      context-switches:u        #    0.000 K/sec                  
+                 0      cpu-migrations:u          #    0.000 K/sec                  
+           390,994      page-faults:u             #    0.161 M/sec                  
+     3,651,637,732      cycles:u                  #    1.504 GHz                    
+     1,676,766,309      instructions:u            #    0.46  insn per cycle         
+       225,636,250      branches:u                #   92.929 M/sec                  
+             9,303      branch-misses:u           #    0.00% of all branches        
+
+       2.432163719 seconds time elapsed
+
+       1.511267000 seconds user
+       0.915950000 seconds sys
+```
+
+1/3rd of the instructions/cycle, yet twice as fast, because it ran ~1/5th the number of instructions.
+
+---
 
 # Before running perf
 
@@ -360,7 +389,6 @@ BM_dot_product<double>/8          1699 ns       1253 ns     603448
         30,731,372      branch-misses             #    2.81% of all branches        
 
       10.877577427 seconds time elapsed
-
 ```
 
 --- 
@@ -483,7 +511,7 @@ $ perf report -g -U -M intel --no-children
 0.01 |       movsd  xmm2,QWORD PTR ds:0x46a100 
 ```
 
-Hmm, so moving data into `xmm1` and `xmm2` is 182x faster than moving data into `xmm0` . . .
+Hmm, so moving data into `xmm1` and `xmm2` is 18x faster than moving data into `xmm0` . . .
 
 Looks like a misattribution of the `jbe`.
 

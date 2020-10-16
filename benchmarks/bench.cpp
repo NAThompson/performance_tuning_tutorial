@@ -34,7 +34,7 @@ void DotProduct(benchmark::State& state)
 }
 
 BENCHMARK_TEMPLATE(DotProduct, float)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(DotProduct, double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(DotProduct, double)->DenseRange(1024, 1024*1024, 1024)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(DotProduct, long double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_MAIN();

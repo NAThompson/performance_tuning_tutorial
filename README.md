@@ -476,10 +476,9 @@ The first two problems can be solved with google/benchmark.
 
 ---
 
-## [google/benchmark](https://github.com/google/benchmark/)
+## A [google/benchmark](https://github.com/google/benchmark/) [example](https://github.com/boostorg/math/blob/develop/reporting/performance/chebyshev_clenshaw.cpp):
 
-An [example](https://github.com/boostorg/math/blob/develop/reporting/performance/chebyshev_clenshaw.cpp):
-```
+```bash
 $ ./reporting/performance/chebyshev_clenshaw.x --benchmark_filter=^ChebyshevClenshaw
 2020-10-16T15:36:34-04:00
 Running ./reporting/performance/chebyshev_clenshaw.x
@@ -543,7 +542,7 @@ build$ sudo ninja install
 
 ---
 
-# Example: `benchmarks/bench.cpp`
+## Example: `benchmarks/bench.cpp`
 
 ```cpp
 #include <vector>
@@ -568,7 +567,7 @@ void DotProduct(benchmark::State& state) {
 }
 
 BENCHMARK_TEMPLATE(DotProduct, float)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity();
-BENCHMARK_TEMPLATE(DotProduct, double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity();
+BENCHMARK_TEMPLATE(DotProduct, double)->DenseRange(8, 1024*1024, 512)->Complexity();
 BENCHMARK_TEMPLATE(DotProduct, long double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity(benchmark::oN);
 
 BENCHMARK_MAIN();
@@ -636,5 +635,7 @@ Finally, copy-paste the console output into [scatterplot.online](https://scatter
 
 ![inline](figures/benchmark_linear_complexity.png)
 
-
 ---
+
+## Multithreading with OpenMP:
+

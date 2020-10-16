@@ -543,5 +543,98 @@ build$ sudo ninja install
 
 ---
 
+# Example: `benchmarks/bench.cpp`
+
+```cpp
+#include <vector>
+#include <random>
+#include <benchmark/benchmark.h>
+
+template<class Real>
+void DotProduct(benchmark::State& state) {
+    std::vector<Real> a(state.range(0));
+    std::vector<Real> b(state.range(0));
+    std::random_device rd;
+    std::uniform_real_distribution<Real> unif(-1,1);
+    for (size_t i = 0; i < a.size(); ++i) {
+        a[i] = unif(rd);
+        b[i] = unif(rd);
+    }
+
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(dot_product(a.data(), b.data(), a.size()));
+    }
+    state.SetComplexityN(state.range(0));
+}
+
+BENCHMARK_TEMPLATE(DotProduct, float)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity();
+BENCHMARK_TEMPLATE(DotProduct, double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity();
+BENCHMARK_TEMPLATE(DotProduct, long double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity(benchmark::oN);
+
+BENCHMARK_MAIN();
+```
+
+---
+
+Instantiate a benchmark on type float:
+
+```cpp
+BENCHMARK_TEMPLATE(DotProduct, float);
+```
+
+Test on vectors of length 8, 16, 32,.., 262144:
+
+```
+->RangeMultiplier(2)->Range(1<<3, 1<<18)
+```
+
+Regress the performance data against $$\mathcal{O}(\log(n)), \mathcal{O}(n), \mathcal{O}(n^2), \mathcal{O}(n^3)$$:
+
+```
+->Complexity();
+```
+
+---
+
+Force regression against $$\mathcal{O}(n)$$:
+
+```
+->Complexity(benchmark::oN);
+```
+
+Repeat the calculation until confidence in the runtime is obtained:
+
+```cpp
+for (auto _ : state) { ... }
+```
+
+Make sure the compiler doesn't elide these instructions:
+
+```cpp
+benchmark::DoNotOptimize(dot_product(a.data(), b.data(), a.size()));
+```
+
+---
+
+## google/benchmark party tricks: Visualize complexity
+
+Set a counter to the length of the vector:
+
+```
+state.counters["n"] = state.range(0);
+```
+
+Then get the output as CSV:
+
+```
+benchmarks$ ./dot_bench --benchmark_format=csv
+```
+
+Finally, copy-paste the console output into [scatterplot.online](https://scatterplot.online/)
+
+---
+
+![inline](figures/benchmark_linear_complexity.png)
 
 
+---

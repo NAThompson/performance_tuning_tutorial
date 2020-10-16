@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <cstdlib>
 
 double dot_product(double* a, double* b, size_t n) {
     double d = 0;

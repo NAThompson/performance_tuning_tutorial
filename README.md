@@ -359,6 +359,10 @@ a.b = 9.99999e+07
 
 ---
 
+![inline](figures/ymm_dot_product.png)
+
+---
+
 # Before running perf
 
  - Compile your executable with symbols (`-g`)

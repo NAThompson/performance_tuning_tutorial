@@ -2,6 +2,7 @@
 #include <random>
 #include <algorithm>
 #include <execution>
+#include <chrono>
 #include <benchmark/benchmark.h>
 
 template<typename Real>
@@ -53,7 +54,11 @@ void Sort(benchmark::State& state)
 
     for (auto _ : state)
     {
+        auto start = std::chrono::high_resolution_clock::now();
         std::sort(a.begin(), a.end());
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+        state.SetIterationTime(elapsed_seconds.count());
         benchmark::DoNotOptimize(a[0]);
         state.PauseTiming();
         std::shuffle(a.begin(), a.end(), rd);
@@ -62,7 +67,7 @@ void Sort(benchmark::State& state)
     state.SetComplexityN(state.range(0));
 }
 
-BENCHMARK_TEMPLATE(Sort, double)->RangeMultiplier(2)->Range(1<<7, 1<<19)->Complexity()->Unit(benchmark::kMicrosecond)->UseRealTime();
+BENCHMARK_TEMPLATE(Sort, double)->RangeMultiplier(2)->Range(1<<5, 1<<16)->Complexity()->Unit(benchmark::kMicrosecond)->UseManualTime();
 
 template<class Real>
 void SortParallel(benchmark::State& state)
@@ -77,16 +82,18 @@ void SortParallel(benchmark::State& state)
 
     for (auto _ : state)
     {
+        auto start = std::chrono::high_resolution_clock::now();
         std::sort(std::execution::par_unseq, a.begin(), a.end());
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+        state.SetIterationTime(elapsed_seconds.count());
         benchmark::DoNotOptimize(a[0]);
-        state.PauseTiming();
         std::shuffle(a.begin(), a.end(), rd);
-        state.ResumeTiming();
     }
     state.SetComplexityN(state.range(0));
 }
 
-BENCHMARK_TEMPLATE(SortParallel, double)->RangeMultiplier(2)->Range(1<<7, 1<<19)->Complexity()->Unit(benchmark::kMicrosecond)->UseRealTime();
+BENCHMARK_TEMPLATE(SortParallel, double)->RangeMultiplier(2)->Range(1<<5, 1<<16)->Complexity()->Unit(benchmark::kMicrosecond)->UseManualTime();
 
 
 BENCHMARK_MAIN();

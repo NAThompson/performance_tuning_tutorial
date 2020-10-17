@@ -1,7 +1,7 @@
 CXX = g++-10
 INCFLAGS = -I/usr/local/include
-CPPFLAGS = -fopenmp --std=c++11 -g -fno-omit-frame-pointer -O3 -march=native -fno-finite-math-only -ffast-math
-LINKFLAGS = -lbenchmark -pthread -L/usr/local/lib
+CPPFLAGS = --std=c++17 -g -fno-omit-frame-pointer -O3 -march=native -fno-finite-math-only -ffast-math
+LINKFLAGS = -lbenchmark -pthread -L/usr/local/lib -ltbb
 
 all: dot_bench
 

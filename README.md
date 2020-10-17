@@ -273,6 +273,35 @@ Is this CPU-bound or memory-bound?
 
 ---
 
+## Kinda painful typing these events
+
+Use `-d` or `--detailed`:
+
+```
+$ perf stat -d ./dot 100000000
+ Performance counter stats for './dot 100000000':
+
+          1,945.17 msec task-clock:u              #    0.970 CPUs utilized
+                 0      context-switches:u        #    0.000 K/sec
+                 0      cpu-migrations:u          #    0.000 K/sec
+           390,463      page-faults:u             #    0.201 M/sec
+     3,329,516,701      cycles:u                  #    1.712 GHz                      (49.97%)
+     1,272,884,914      instructions:u            #    0.38  insn per cycle           (62.50%)
+       150,445,759      branches:u                #   77.343 M/sec                    (62.55%)
+            14,766      branch-misses:u           #    0.01% of all branches          (62.53%)
+        76,672,490      L1-dcache-loads:u         #   39.417 M/sec                    (62.53%)
+        51,315,841      L1-dcache-load-misses:u   #   66.93% of all L1-dcache hits    (62.52%)
+         7,867,383      LLC-loads:u               #    4.045 M/sec                    (49.94%)
+         7,618,746      LLC-load-misses:u         #   96.84% of all LL-cache hits     (49.96%)
+
+       2.005801176 seconds time elapsed
+
+       0.982545000 seconds user
+       0.963534000 seconds sys
+```
+
+---
+
 ## `perf stat` is great for reporting . . .
 
 But not super actionable.
@@ -463,12 +492,22 @@ Looks like a misattribution of the `jbe`.
 
 ---
 
+> There's a problem with event profiling that you don't really encounter with CPU profiling (timed sampling). With timed sampling, it doesn't matter if there was a small sub-microsecond delay between the interrupt and reading the instruction pointer (IP). Some CPU profilers introduce this jitter on purpose, as another way to avoid lockstep sampling. But for event profiling, it does matter: if you're trying to capture the IP on some PMC event, and there's a delay between the PMC overflow and capturing the IP, then the IP will point to the wrong address. This is skew. Another contributing problem is that micro-ops are processed in parallel and out-of-order, while the instruction pointer points to the resumption instruction, not the instruction that caused the event.
+
+--[Brendan Gregg](http://www.brendangregg.com/perf.html)
+
+---
+
 ## Two sensible goals: Reduce power consumption, reduce runtime.
 
 Not necessarily the same thing. Benchmark power consumption:
 
 ```
-$ perf stat -e power/energy-cores/ ./dot 100000000
+$ perf list | grep energy
+  power/energy-cores/                                [Kernel PMU event]
+  power/energy-pkg/                                  [Kernel PMU event]
+  power/energy-ram/                                  [Kernel PMU event]
+$ perf stat -e energy-cores ./dot 100000000
 Performance counter stats for 'system wide':
 
               8.55 Joules power/energy-cores/
@@ -494,7 +533,31 @@ Instruction count is reproducible, but time and cycles are not. Use instruction 
 
 ---
 
-# `perf` and thread parallelism
+## Long tail `perf`
+
+Attaching to a running process or MPI rank
+
+```bash
+$ top # find rogue process
+$ perf stat -p 21679
+^C
+```
+
+---
+
+## Long tail `perf`
+
+Sometimes, `perf` will gather *way* too much data, creating a huge `perf.data` file.
+
+Get rid of it by reducing sampling frequency:
+
+```
+$ perf record -F 10 ./dot 100000000
+```
+
+---
+
+## `perf` and thread parallelism
 
 
 ---
@@ -679,4 +742,15 @@ Finally, copy-paste the console output into [scatterplot.online](https://scatter
 
 ---
 
-## Multithreading with OpenMP:
+## Long tail `google/benchmark`
+
+If you have root, you can decrease run-to-run variance via 
+
+```
+$ sudo cpupower frequency-set --governor performance
+```
+
+---
+
+## Long tail `google/benchmark`: Multithreading gotchas
+

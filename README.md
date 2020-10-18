@@ -781,6 +781,12 @@ $ sudo cpupower frequency-set --governor performance
 
 ---
 
+## Session 3
+
+Flamegraphs
+
+---
+
 # _What is google/benchmark not good for?_
 
 Profiling workflows. It's a *microbenchmark* library.

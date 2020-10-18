@@ -1,0 +1,2405 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="726" onload="init(evt)" viewBox="0 0 1200 726" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom();
+			zoom(target);
+		}
+		else if (e.target.id == "unzoom") unzoom();
+		else if (e.target.id == "search") search_prompt();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	}, false)
+
+	// functions
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+		return;
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x = txt.length - 2; x > 0; x--) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="726.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >Flame Graph</text>
+<text id="details" x="10.00" y="709" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="matched" x="1090.00" y="709" > </text>
+<g id="frames">
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="10.2" y="533" width="0.7" height="15.0" fill="rgb(236,167,0)" rx="2" ry="2" />
+<text  x="13.23" y="543.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Get (44 samples, 0.85%)</title><rect x="785.4" y="421" width="10.1" height="15.0" fill="rgb(230,176,20)" rx="2" ry="2" />
+<text  x="788.45" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (5 samples, 0.10%)</title><rect x="334.3" y="325" width="1.1" height="15.0" fill="rgb(205,161,20)" rx="2" ry="2" />
+<text  x="337.28" y="335.5" ></text>
+</g>
+<g >
+<title>[unknown] (44 samples, 0.85%)</title><rect x="883.2" y="405" width="10.0" height="15.0" fill="rgb(243,94,19)" rx="2" ry="2" />
+<text  x="886.23" y="415.5" ></text>
+</g>
+<g >
+<title>std::condition_variable::wait&lt;vtkm::cont::internal::ArrayHandleImpl::WaitToRead (161 samples, 3.10%)</title><rect x="579.9" y="485" width="36.6" height="15.0" fill="rgb(220,62,16)" rx="2" ry="2" />
+<text  x="582.87" y="495.5" >std..</text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add (3 samples, 0.06%)</title><rect x="1069.5" y="437" width="0.7" height="15.0" fill="rgb(230,51,16)" rx="2" ry="2" />
+<text  x="1072.48" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::ScheduleTask (582 samples, 11.22%)</title><rect x="681.3" y="501" width="132.3" height="15.0" fill="rgb(209,210,22)" rx="2" ry="2" />
+<text  x="684.30" y="511.5" >vtkm::cont::Devi..</text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="645" width="1.4" height="15.0" fill="rgb(243,207,18)" rx="2" ry="2" />
+<text  x="1191.64" y="655.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (15 samples, 0.29%)</title><rect x="677.9" y="453" width="3.4" height="15.0" fill="rgb(231,79,6)" rx="2" ry="2" />
+<text  x="680.89" y="463.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.27] (1 samples, 0.02%)</title><rect x="10.0" y="645" width="0.2" height="15.0" fill="rgb(222,26,2)" rx="2" ry="2" />
+<text  x="13.00" y="655.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (8 samples, 0.15%)</title><rect x="1028.5" y="469" width="1.9" height="15.0" fill="rgb(213,0,3)" rx="2" ry="2" />
+<text  x="1031.54" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::Token::Token (139 samples, 2.68%)</title><rect x="361.1" y="501" width="31.6" height="15.0" fill="rgb(235,159,33)" rx="2" ry="2" />
+<text  x="364.11" y="511.5" >vt..</text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (3 samples, 0.06%)</title><rect x="553.7" y="485" width="0.7" height="15.0" fill="rgb(213,147,52)" rx="2" ry="2" />
+<text  x="556.72" y="495.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (128 samples, 2.47%)</title><rect x="1054.9" y="485" width="29.1" height="15.0" fill="rgb(245,93,51)" rx="2" ry="2" />
+<text  x="1057.92" y="495.5" >st..</text>
+</g>
+<g >
+<title>vtkm::cont::Token::~Token (3 samples, 0.06%)</title><rect x="988.7" y="517" width="0.7" height="15.0" fill="rgb(254,223,19)" rx="2" ry="2" />
+<text  x="991.75" y="527.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (44 samples, 0.85%)</title><rect x="175.1" y="469" width="10.0" height="15.0" fill="rgb(209,226,1)" rx="2" ry="2" />
+<text  x="178.10" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="549" width="1.4" height="15.0" fill="rgb(213,91,46)" rx="2" ry="2" />
+<text  x="1191.64" y="559.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::OverlapKernel::operator (191 samples, 3.68%)</title><rect x="938.3" y="453" width="43.4" height="15.0" fill="rgb(230,128,22)" rx="2" ry="2" />
+<text  x="941.26" y="463.5" >vtkm..</text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (8 samples, 0.15%)</title><rect x="1047.9" y="501" width="1.8" height="15.0" fill="rgb(228,57,47)" rx="2" ry="2" />
+<text  x="1050.87" y="511.5" ></text>
+</g>
+<g >
+<title>[unknown] (2 samples, 0.04%)</title><rect x="10.5" y="501" width="0.4" height="15.0" fill="rgb(227,6,25)" rx="2" ry="2" />
+<text  x="13.45" y="511.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (3 samples, 0.06%)</title><rect x="1005.8" y="485" width="0.7" height="15.0" fill="rgb(252,194,48)" rx="2" ry="2" />
+<text  x="1008.80" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt;::~ArrayPortalCheck (163 samples, 3.14%)</title><rect x="1047.0" y="517" width="37.0" height="15.0" fill="rgb(232,155,33)" rx="2" ry="2" />
+<text  x="1049.96" y="527.5" >vtk..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="293" width="0.2" height="15.0" fill="rgb(208,206,36)" rx="2" ry="2" />
+<text  x="742.51" y="303.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="501" width="1.4" height="15.0" fill="rgb(211,19,41)" rx="2" ry="2" />
+<text  x="1191.64" y="511.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (36 samples, 0.69%)</title><rect x="1091.5" y="629" width="8.2" height="15.0" fill="rgb(231,40,23)" rx="2" ry="2" />
+<text  x="1094.53" y="639.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="835.0" y="341" width="0.2" height="15.0" fill="rgb(244,90,20)" rx="2" ry="2" />
+<text  x="838.02" y="351.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::~unique_ptr (6 samples, 0.12%)</title><rect x="249.9" y="501" width="1.4" height="15.0" fill="rgb(213,79,42)" rx="2" ry="2" />
+<text  x="252.91" y="511.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (27 samples, 0.52%)</title><rect x="1006.7" y="469" width="6.2" height="15.0" fill="rgb(222,8,0)" rx="2" ry="2" />
+<text  x="1009.71" y="479.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::__uniq_ptr_impl (76 samples, 1.46%)</title><rect x="373.6" y="469" width="17.3" height="15.0" fill="rgb(206,167,3)" rx="2" ry="2" />
+<text  x="376.62" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::ScheduleTask (95 samples, 1.83%)</title><rect x="813.6" y="501" width="21.6" height="15.0" fill="rgb(209,185,7)" rx="2" ry="2" />
+<text  x="816.65" y="511.5" >v..</text>
+</g>
+<g >
+<title>vtkm::testing::Testing::Assert&lt;char const  (17 samples, 0.33%)</title><rect x="1086.5" y="517" width="3.9" height="15.0" fill="rgb(230,71,3)" rx="2" ry="2" />
+<text  x="1089.53" y="527.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (6 samples, 0.12%)</title><rect x="932.8" y="469" width="1.4" height="15.0" fill="rgb(243,42,2)" rx="2" ry="2" />
+<text  x="935.81" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (5 samples, 0.10%)</title><rect x="767.9" y="469" width="1.2" height="15.0" fill="rgb(248,68,20)" rx="2" ry="2" />
+<text  x="770.94" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::Token::DetachFromAll (5 samples, 0.10%)</title><rect x="360.0" y="501" width="1.1" height="15.0" fill="rgb(212,176,43)" rx="2" ry="2" />
+<text  x="362.97" y="511.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (2 samples, 0.04%)</title><rect x="626.3" y="469" width="0.4" height="15.0" fill="rgb(221,11,52)" rx="2" ry="2" />
+<text  x="629.27" y="479.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add (45 samples, 0.87%)</title><rect x="1071.7" y="421" width="10.3" height="15.0" fill="rgb(240,226,54)" rx="2" ry="2" />
+<text  x="1074.75" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (9 samples, 0.17%)</title><rect x="891.2" y="293" width="2.0" height="15.0" fill="rgb(233,73,6)" rx="2" ry="2" />
+<text  x="894.19" y="303.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::IteratorAt (6 samples, 0.12%)</title><rect x="739.7" y="437" width="1.4" height="15.0" fill="rgb(246,9,24)" rx="2" ry="2" />
+<text  x="742.74" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (2 samples, 0.04%)</title><rect x="512.1" y="485" width="0.5" height="15.0" fill="rgb(223,81,12)" rx="2" ry="2" />
+<text  x="515.11" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt;::Get&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;, 0&gt; (99 samples, 1.91%)</title><rect x="1024.4" y="517" width="22.6" height="15.0" fill="rgb(249,133,15)" rx="2" ry="2" />
+<text  x="1027.45" y="527.5" >v..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="341" width="0.2" height="15.0" fill="rgb(214,123,23)" rx="2" ry="2" />
+<text  x="742.51" y="351.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (41 samples, 0.79%)</title><rect x="474.8" y="469" width="9.3" height="15.0" fill="rgb(240,196,37)" rx="2" ry="2" />
+<text  x="477.81" y="479.5" ></text>
+</g>
+<g >
+<title>std::uniform_int_distribution&lt;long long&gt;::operator (8 samples, 0.15%)</title><rect x="88.9" y="517" width="1.8" height="15.0" fill="rgb(210,173,46)" rx="2" ry="2" />
+<text  x="91.91" y="527.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_lock (13 samples, 0.25%)</title><rect x="299.9" y="421" width="3.0" height="15.0" fill="rgb(219,125,21)" rx="2" ry="2" />
+<text  x="302.94" y="431.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (5 samples, 0.10%)</title><rect x="1082.0" y="421" width="1.1" height="15.0" fill="rgb(230,119,19)" rx="2" ry="2" />
+<text  x="1084.98" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="767.0" y="357" width="0.3" height="15.0" fill="rgb(234,157,43)" rx="2" ry="2" />
+<text  x="770.03" y="367.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_unlock (6 samples, 0.12%)</title><rect x="230.8" y="453" width="1.4" height="15.0" fill="rgb(222,74,40)" rx="2" ry="2" />
+<text  x="233.81" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (9 samples, 0.17%)</title><rect x="495.1" y="501" width="2.0" height="15.0" fill="rgb(212,162,17)" rx="2" ry="2" />
+<text  x="498.05" y="511.5" ></text>
+</g>
+<g >
+<title>[unknown] (5 samples, 0.10%)</title><rect x="334.3" y="309" width="1.1" height="15.0" fill="rgb(228,191,26)" rx="2" ry="2" />
+<text  x="337.28" y="319.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt;::~ArrayPortalCheck (3 samples, 0.06%)</title><rect x="52.8" y="533" width="0.6" height="15.0" fill="rgb(224,12,51)" rx="2" ry="2" />
+<text  x="55.75" y="543.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::WaitToRead (6 samples, 0.12%)</title><rect x="991.0" y="517" width="1.4" height="15.0" fill="rgb(254,94,6)" rx="2" ry="2" />
+<text  x="994.02" y="527.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__atomic_add_dispatch (7 samples, 0.13%)</title><rect x="533.5" y="437" width="1.6" height="15.0" fill="rgb(253,29,45)" rx="2" ry="2" />
+<text  x="536.48" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl,  (43 samples, 0.83%)</title><rect x="258.1" y="469" width="9.8" height="15.0" fill="rgb(225,122,11)" rx="2" ry="2" />
+<text  x="261.10" y="479.5" ></text>
+</g>
+<g >
+<title>free@plt (7 samples, 0.13%)</title><rect x="27.7" y="533" width="1.6" height="15.0" fill="rgb(216,172,30)" rx="2" ry="2" />
+<text  x="30.74" y="543.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (4 samples, 0.08%)</title><rect x="477.1" y="453" width="0.9" height="15.0" fill="rgb(237,94,4)" rx="2" ry="2" />
+<text  x="480.09" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (31 samples, 0.60%)</title><rect x="463.2" y="469" width="7.1" height="15.0" fill="rgb(219,69,2)" rx="2" ry="2" />
+<text  x="466.22" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="357" width="0.3" height="15.0" fill="rgb(243,32,51)" rx="2" ry="2" />
+<text  x="528.53" y="367.5" ></text>
+</g>
+<g >
+<title>__munmap (15 samples, 0.29%)</title><rect x="677.9" y="277" width="3.4" height="15.0" fill="rgb(225,220,25)" rx="2" ry="2" />
+<text  x="680.89" y="287.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel::operator (9 samples, 0.17%)</title><rect x="681.5" y="469" width="2.1" height="15.0" fill="rgb(209,5,16)" rx="2" ry="2" />
+<text  x="684.52" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;0ul, vtkm::cont::Token::InternalStruct*, false&gt;::_M_head (14 samples, 0.27%)</title><rect x="418.6" y="405" width="3.2" height="15.0" fill="rgb(239,53,38)" rx="2" ry="2" />
+<text  x="421.65" y="415.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (16 samples, 0.31%)</title><rect x="84.4" y="517" width="3.6" height="15.0" fill="rgb(210,163,23)" rx="2" ry="2" />
+<text  x="87.36" y="527.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Get (2 samples, 0.04%)</title><rect x="779.5" y="437" width="0.5" height="15.0" fill="rgb(216,73,44)" rx="2" ry="2" />
+<text  x="782.54" y="447.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_head (2 samples, 0.04%)</title><rect x="447.3" y="405" width="0.5" height="15.0" fill="rgb(229,61,51)" rx="2" ry="2" />
+<text  x="450.30" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="767.0" y="405" width="0.3" height="15.0" fill="rgb(234,222,50)" rx="2" ry="2" />
+<text  x="770.03" y="415.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel::operator (348 samples, 6.71%)</title><rect x="688.1" y="453" width="79.2" height="15.0" fill="rgb(223,112,21)" rx="2" ry="2" />
+<text  x="691.12" y="463.5" >vtkm::con..</text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::unique_ptr&lt;std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt;, void&gt; (124 samples, 2.39%)</title><rect x="364.5" y="485" width="28.2" height="15.0" fill="rgb(211,201,23)" rx="2" ry="2" />
+<text  x="367.52" y="495.5" >s..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (39 samples, 0.75%)</title><rect x="500.3" y="485" width="8.9" height="15.0" fill="rgb(213,35,28)" rx="2" ry="2" />
+<text  x="503.28" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (18 samples, 0.35%)</title><rect x="981.7" y="453" width="4.1" height="15.0" fill="rgb(205,117,34)" rx="2" ry="2" />
+<text  x="984.70" y="463.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (13 samples, 0.25%)</title><rect x="505.3" y="469" width="2.9" height="15.0" fill="rgb(234,126,12)" rx="2" ry="2" />
+<text  x="508.29" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="421" width="1.3" height="15.0" fill="rgb(207,2,41)" rx="2" ry="2" />
+<text  x="337.05" y="431.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;char&gt;::allocator@plt (4 samples, 0.08%)</title><rect x="46.8" y="533" width="0.9" height="15.0" fill="rgb(213,20,4)" rx="2" ry="2" />
+<text  x="49.84" y="543.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl,  (28 samples, 0.54%)</title><rect x="261.5" y="453" width="6.4" height="15.0" fill="rgb(223,129,40)" rx="2" ry="2" />
+<text  x="264.51" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::GetWriteCount (52 samples, 1.00%)</title><rect x="603.8" y="437" width="11.8" height="15.0" fill="rgb(218,186,13)" rx="2" ry="2" />
+<text  x="606.75" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (33 samples, 0.64%)</title><rect x="801.1" y="437" width="7.5" height="15.0" fill="rgb(234,114,6)" rx="2" ry="2" />
+<text  x="804.14" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (2 samples, 0.04%)</title><rect x="275.8" y="453" width="0.5" height="15.0" fill="rgb(206,10,44)" rx="2" ry="2" />
+<text  x="278.84" y="463.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (62 samples, 1.19%)</title><rect x="13.6" y="533" width="14.1" height="15.0" fill="rgb(220,37,47)" rx="2" ry="2" />
+<text  x="16.64" y="543.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="10.7" y="485" width="0.2" height="15.0" fill="rgb(216,186,17)" rx="2" ry="2" />
+<text  x="13.68" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt;::operator (3 samples, 0.06%)</title><rect x="893.2" y="469" width="0.7" height="15.0" fill="rgb(217,198,34)" rx="2" ry="2" />
+<text  x="896.24" y="479.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::lock (91 samples, 1.75%)</title><rect x="294.7" y="453" width="20.7" height="15.0" fill="rgb(211,189,21)" rx="2" ry="2" />
+<text  x="297.71" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::ArrayHandle&lt;long long, vtkm::cont::StorageTagBasic&gt;::ReadPortal (2,573 samples, 49.59%)</title><rect x="92.1" y="517" width="585.1" height="15.0" fill="rgb(207,178,47)" rx="2" ry="2" />
+<text  x="95.09" y="527.5" >vtkm::cont::ArrayHandle&lt;long long, vtkm::cont::StorageTagBasic&gt;::ReadPortal</text>
+</g>
+<g >
+<title>pthread_mutex_unlock@plt (3 samples, 0.06%)</title><rect x="246.7" y="453" width="0.7" height="15.0" fill="rgb(240,32,42)" rx="2" ry="2" />
+<text  x="249.73" y="463.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="517" width="1.4" height="15.0" fill="rgb(246,115,36)" rx="2" ry="2" />
+<text  x="1191.64" y="527.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::owns_lock (7 samples, 0.13%)</title><rect x="614.0" y="405" width="1.6" height="15.0" fill="rgb(209,22,4)" rx="2" ry="2" />
+<text  x="616.99" y="415.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_construct&lt;char const*&gt; (8 samples, 0.15%)</title><rect x="32.3" y="533" width="1.8" height="15.0" fill="rgb(238,40,44)" rx="2" ry="2" />
+<text  x="35.29" y="543.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::TaskTiling3D::operator (204 samples, 3.93%)</title><rect x="767.3" y="485" width="46.3" height="15.0" fill="rgb(234,57,25)" rx="2" ry="2" />
+<text  x="770.26" y="495.5" >vtkm..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="10.7" y="469" width="0.2" height="15.0" fill="rgb(215,218,17)" rx="2" ry="2" />
+<text  x="13.68" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt;::operator (8 samples, 0.15%)</title><rect x="835.5" y="469" width="1.8" height="15.0" fill="rgb(215,24,15)" rx="2" ry="2" />
+<text  x="838.48" y="479.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (1 samples, 0.02%)</title><rect x="352.0" y="453" width="0.2" height="15.0" fill="rgb(223,67,22)" rx="2" ry="2" />
+<text  x="355.02" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (54 samples, 1.04%)</title><rect x="1000.6" y="501" width="12.3" height="15.0" fill="rgb(207,93,17)" rx="2" ry="2" />
+<text  x="1003.57" y="511.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Get (1 samples, 0.02%)</title><rect x="931.7" y="437" width="0.2" height="15.0" fill="rgb(251,200,37)" rx="2" ry="2" />
+<text  x="934.67" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::TaskTiling1D::operator (6 samples, 0.12%)</title><rect x="931.2" y="485" width="1.4" height="15.0" fill="rgb(224,72,13)" rx="2" ry="2" />
+<text  x="934.21" y="495.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::get (76 samples, 1.46%)</title><rect x="437.3" y="453" width="17.3" height="15.0" fill="rgb(214,161,54)" rx="2" ry="2" />
+<text  x="440.29" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (15 samples, 0.29%)</title><rect x="677.9" y="469" width="3.4" height="15.0" fill="rgb(210,19,33)" rx="2" ry="2" />
+<text  x="680.89" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::IsControlArrayValid (75 samples, 1.45%)</title><rect x="342.9" y="469" width="17.1" height="15.0" fill="rgb(206,12,15)" rx="2" ry="2" />
+<text  x="345.92" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::Storage&lt;long long, vtkm::cont::StorageTagBasic&gt;::GetPortalConst (96 samples, 1.85%)</title><rect x="655.4" y="501" width="21.8" height="15.0" fill="rgb(215,84,18)" rx="2" ry="2" />
+<text  x="658.37" y="511.5" >v..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="309" width="0.2" height="15.0" fill="rgb(241,122,12)" rx="2" ry="2" />
+<text  x="742.51" y="319.5" ></text>
+</g>
+<g >
+<title>__pthread_mutex_unlock (64 samples, 1.23%)</title><rect x="232.2" y="453" width="14.5" height="15.0" fill="rgb(242,135,18)" rx="2" ry="2" />
+<text  x="235.17" y="463.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="453" width="1.3" height="15.0" fill="rgb(230,41,54)" rx="2" ry="2" />
+<text  x="337.05" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::TestAlgorithmSchedule (4,560 samples, 87.88%)</title><rect x="53.4" y="533" width="1037.0" height="15.0" fill="rgb(237,124,45)" rx="2" ry="2" />
+<text  x="56.43" y="543.5" >vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::TestAlgorithmSchedule</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="1049.5" y="485" width="0.2" height="15.0" fill="rgb(233,59,38)" rx="2" ry="2" />
+<text  x="1052.46" y="495.5" ></text>
+</g>
+<g >
+<title>dl_main (1 samples, 0.02%)</title><rect x="1112.2" y="613" width="0.3" height="15.0" fill="rgb(226,72,52)" rx="2" ry="2" />
+<text  x="1115.23" y="623.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::operator bool (8 samples, 0.15%)</title><rect x="395.7" y="485" width="1.8" height="15.0" fill="rgb(227,207,6)" rx="2" ry="2" />
+<text  x="398.68" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Set (5 samples, 0.10%)</title><rect x="946.9" y="437" width="1.1" height="15.0" fill="rgb(238,118,6)" rx="2" ry="2" />
+<text  x="949.90" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::ArrayHandle&lt;long long, vtkm::cont::StorageTagBasic&gt;::SyncControlArray (196 samples, 3.78%)</title><rect x="315.4" y="501" width="44.6" height="15.0" fill="rgb(217,179,40)" rx="2" ry="2" />
+<text  x="318.40" y="511.5" >vtkm..</text>
+</g>
+<g >
+<title>std::__shared_count&lt; (15 samples, 0.29%)</title><rect x="677.9" y="373" width="3.4" height="15.0" fill="rgb(216,16,49)" rx="2" ry="2" />
+<text  x="680.89" y="383.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="680.6" y="37" width="0.7" height="15.0" fill="rgb(251,24,26)" rx="2" ry="2" />
+<text  x="683.61" y="47.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::IteratorAt (1 samples, 0.02%)</title><rect x="931.7" y="421" width="0.2" height="15.0" fill="rgb(246,32,43)" rx="2" ry="2" />
+<text  x="934.67" y="431.5" ></text>
+</g>
+<g >
+<title>memcpy@plt (9 samples, 0.17%)</title><rect x="1120.6" y="629" width="2.1" height="15.0" fill="rgb(218,0,24)" rx="2" ry="2" />
+<text  x="1123.64" y="639.5" ></text>
+</g>
+<g >
+<title>[unknown] (5 samples, 0.10%)</title><rect x="334.3" y="341" width="1.1" height="15.0" fill="rgb(248,3,29)" rx="2" ry="2" />
+<text  x="337.28" y="351.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::__uniq_ptr_impl (6 samples, 0.12%)</title><rect x="363.2" y="485" width="1.3" height="15.0" fill="rgb(216,180,12)" rx="2" ry="2" />
+<text  x="366.16" y="495.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (4 samples, 0.08%)</title><rect x="1083.1" y="437" width="0.9" height="15.0" fill="rgb(206,80,32)" rx="2" ry="2" />
+<text  x="1086.12" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::CheckControlArrayValid (3 samples, 0.06%)</title><rect x="989.4" y="517" width="0.7" height="15.0" fill="rgb(254,149,18)" rx="2" ry="2" />
+<text  x="992.43" y="527.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::~unique_lock (113 samples, 2.18%)</title><rect x="221.7" y="501" width="25.7" height="15.0" fill="rgb(206,204,15)" rx="2" ry="2" />
+<text  x="224.71" y="511.5" >s..</text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="213" width="3.4" height="15.0" fill="rgb(242,57,51)" rx="2" ry="2" />
+<text  x="680.89" y="223.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::FunctorTiling1DExecute&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt; &gt; &gt; (89 samples, 1.72%)</title><rect x="815.0" y="469" width="20.2" height="15.0" fill="rgb(219,195,33)" rx="2" ry="2" />
+<text  x="818.01" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::OverlapKernel::operator (5 samples, 0.10%)</title><rect x="931.4" y="453" width="1.2" height="15.0" fill="rgb(246,87,36)" rx="2" ry="2" />
+<text  x="934.44" y="463.5" ></text>
+</g>
+<g >
+<title>std::distance&lt;long long const*&gt; (30 samples, 0.58%)</title><rect x="670.4" y="469" width="6.8" height="15.0" fill="rgb(217,51,52)" rx="2" ry="2" />
+<text  x="673.38" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::TaskTiling1D::operator (95 samples, 1.83%)</title><rect x="813.6" y="485" width="21.6" height="15.0" fill="rgb(221,150,52)" rx="2" ry="2" />
+<text  x="816.65" y="495.5" >v..</text>
+</g>
+<g >
+<title>__gnu_cxx::__atomic_add_dispatch (73 samples, 1.41%)</title><rect x="536.0" y="421" width="16.6" height="15.0" fill="rgb(238,159,49)" rx="2" ry="2" />
+<text  x="538.99" y="431.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_unlock (1 samples, 0.02%)</title><rect x="229.9" y="469" width="0.2" height="15.0" fill="rgb(249,101,38)" rx="2" ry="2" />
+<text  x="232.90" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::ArrayHandle&lt;long long, vtkm::cont::StorageTagBasic&gt;::SyncControlArray (3 samples, 0.06%)</title><rect x="677.2" y="517" width="0.7" height="15.0" fill="rgb(209,42,41)" rx="2" ry="2" />
+<text  x="680.20" y="527.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::get (12 samples, 0.23%)</title><rect x="429.1" y="469" width="2.7" height="15.0" fill="rgb(218,116,12)" rx="2" ry="2" />
+<text  x="432.11" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (83 samples, 1.60%)</title><rect x="202.4" y="453" width="18.9" height="15.0" fill="rgb(230,65,0)" rx="2" ry="2" />
+<text  x="205.38" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (111 samples, 2.14%)</title><rect x="1058.8" y="469" width="25.2" height="15.0" fill="rgb(248,177,47)" rx="2" ry="2" />
+<text  x="1061.79" y="479.5" >s..</text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel::operator (93 samples, 1.79%)</title><rect x="780.0" y="437" width="21.1" height="15.0" fill="rgb(228,111,23)" rx="2" ry="2" />
+<text  x="782.99" y="447.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add_dispatch (4 samples, 0.08%)</title><rect x="1064.7" y="453" width="0.9" height="15.0" fill="rgb(242,68,12)" rx="2" ry="2" />
+<text  x="1067.70" y="463.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="341" width="0.3" height="15.0" fill="rgb(225,17,10)" rx="2" ry="2" />
+<text  x="528.53" y="351.5" ></text>
+</g>
+<g >
+<title>vtkm::Vec&lt;long long, 3&gt;::Vec (1 samples, 0.02%)</title><rect x="938.0" y="453" width="0.3" height="15.0" fill="rgb(228,186,24)" rx="2" ry="2" />
+<text  x="941.04" y="463.5" ></text>
+</g>
+<g >
+<title>[UnitTests_vtkm_cont_serial_testing] (12 samples, 0.23%)</title><rect x="10.9" y="533" width="2.7" height="15.0" fill="rgb(235,115,45)" rx="2" ry="2" />
+<text  x="13.91" y="543.5" ></text>
+</g>
+<g >
+<title>std::shared_ptr&lt;bool&gt;::shared_ptr (181 samples, 3.49%)</title><rect x="512.6" y="485" width="41.1" height="15.0" fill="rgb(219,25,5)" rx="2" ry="2" />
+<text  x="515.56" y="495.5" >std..</text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="149" width="3.4" height="15.0" fill="rgb(225,163,5)" rx="2" ry="2" />
+<text  x="680.89" y="159.5" ></text>
+</g>
+<g >
+<title>operator delete (13 samples, 0.25%)</title><rect x="29.3" y="533" width="3.0" height="15.0" fill="rgb(220,85,13)" rx="2" ry="2" />
+<text  x="32.33" y="543.5" ></text>
+</g>
+<g >
+<title>std::uniform_int_distribution&lt;long long&gt;::operator (7 samples, 0.13%)</title><rect x="89.1" y="501" width="1.6" height="15.0" fill="rgb(213,221,17)" rx="2" ry="2" />
+<text  x="92.14" y="511.5" ></text>
+</g>
+<g >
+<title>[unknown] (7 samples, 0.13%)</title><rect x="679.7" y="101" width="1.6" height="15.0" fill="rgb(247,155,0)" rx="2" ry="2" />
+<text  x="682.71" y="111.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;1ul, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt;, true&gt;::_Head_base (2 samples, 0.04%)</title><rect x="386.8" y="421" width="0.5" height="15.0" fill="rgb(216,103,23)" rx="2" ry="2" />
+<text  x="389.81" y="431.5" ></text>
+</g>
+<g >
+<title>std::shared_ptr&lt;bool&gt;::~shared_ptr (151 samples, 2.91%)</title><rect x="1049.7" y="501" width="34.3" height="15.0" fill="rgb(252,63,43)" rx="2" ry="2" />
+<text  x="1052.69" y="511.5" >st..</text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::TaskTiling1D::operator (254 samples, 4.89%)</title><rect x="835.5" y="485" width="57.7" height="15.0" fill="rgb(206,110,19)" rx="2" ry="2" />
+<text  x="838.48" y="495.5" >vtkm::..</text>
+</g>
+<g >
+<title>__gnu_cxx::__atomic_add (47 samples, 0.91%)</title><rect x="644.0" y="405" width="10.7" height="15.0" fill="rgb(237,9,44)" rx="2" ry="2" />
+<text  x="647.00" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="767.0" y="373" width="0.3" height="15.0" fill="rgb(247,53,46)" rx="2" ry="2" />
+<text  x="770.03" y="383.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="767.0" y="325" width="0.3" height="15.0" fill="rgb(246,138,44)" rx="2" ry="2" />
+<text  x="770.03" y="335.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt;::operator (134 samples, 2.58%)</title><rect x="897.1" y="453" width="30.5" height="15.0" fill="rgb(229,2,53)" rx="2" ry="2" />
+<text  x="900.10" y="463.5" >vt..</text>
+</g>
+<g >
+<title>std::__shared_count&lt; (9 samples, 0.17%)</title><rect x="515.3" y="469" width="2.0" height="15.0" fill="rgb(252,55,21)" rx="2" ry="2" />
+<text  x="518.29" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (81 samples, 1.56%)</title><rect x="1065.6" y="453" width="18.4" height="15.0" fill="rgb(221,41,10)" rx="2" ry="2" />
+<text  x="1068.61" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Set (3 samples, 0.06%)</title><rect x="931.9" y="437" width="0.7" height="15.0" fill="rgb(215,202,54)" rx="2" ry="2" />
+<text  x="934.90" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::Testing::Run&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::TestAll&gt; (4,752 samples, 91.58%)</title><rect x="10.9" y="565" width="1080.6" height="15.0" fill="rgb(225,90,13)" rx="2" ry="2" />
+<text  x="13.91" y="575.5" >vtkm::cont::testing::Testing::Run&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::TestAll&gt;</text>
+</g>
+<g >
+<title>std::condition_variable::wait&lt;vtkm::cont::internal::ArrayHandleImpl::WaitToRead (9 samples, 0.17%)</title><rect x="185.1" y="501" width="2.0" height="15.0" fill="rgb(210,79,19)" rx="2" ry="2" />
+<text  x="188.10" y="511.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::FunctorTiling1DExecute&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::OverlapKernel&gt; (6 samples, 0.12%)</title><rect x="931.2" y="469" width="1.4" height="15.0" fill="rgb(208,169,37)" rx="2" ry="2" />
+<text  x="934.21" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (5,041 samples, 97.15%)</title><rect x="10.2" y="645" width="1146.4" height="15.0" fill="rgb(246,179,14)" rx="2" ry="2" />
+<text  x="13.23" y="655.5" >[unknown]</text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt; &gt;::operator (72 samples, 1.39%)</title><rect x="818.9" y="453" width="16.3" height="15.0" fill="rgb(225,93,28)" rx="2" ry="2" />
+<text  x="821.88" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Get (33 samples, 0.64%)</title><rect x="951.9" y="421" width="7.5" height="15.0" fill="rgb(226,142,52)" rx="2" ry="2" />
+<text  x="954.91" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::IteratorAt (83 samples, 1.60%)</title><rect x="720.9" y="421" width="18.8" height="15.0" fill="rgb(226,69,26)" rx="2" ry="2" />
+<text  x="723.87" y="431.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;1ul, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt;, true&gt;::_Head_base (2 samples, 0.04%)</title><rect x="389.8" y="405" width="0.4" height="15.0" fill="rgb(226,221,28)" rx="2" ry="2" />
+<text  x="392.76" y="415.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Set (171 samples, 3.30%)</title><rect x="854.4" y="437" width="38.8" height="15.0" fill="rgb(221,57,48)" rx="2" ry="2" />
+<text  x="857.35" y="447.5" >vtk..</text>
+</g>
+<g >
+<title>std::_Head_base&lt;0ul, vtkm::cont::Token::InternalStruct*, false&gt;::_M_head (3 samples, 0.06%)</title><rect x="449.3" y="389" width="0.7" height="15.0" fill="rgb(218,186,34)" rx="2" ry="2" />
+<text  x="452.34" y="399.5" ></text>
+</g>
+<g >
+<title>[unknown] (9 samples, 0.17%)</title><rect x="918.5" y="325" width="2.0" height="15.0" fill="rgb(220,82,26)" rx="2" ry="2" />
+<text  x="921.48" y="335.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="767.0" y="421" width="0.3" height="15.0" fill="rgb(232,66,37)" rx="2" ry="2" />
+<text  x="770.03" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::FunctorTiling1DExecute&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel&gt; (368 samples, 7.09%)</title><rect x="683.6" y="469" width="83.7" height="15.0" fill="rgb(210,146,52)" rx="2" ry="2" />
+<text  x="686.57" y="479.5" >vtkm::exe..</text>
+</g>
+<g >
+<title>__pthread_mutex_lock (54 samples, 1.04%)</title><rect x="302.9" y="421" width="12.3" height="15.0" fill="rgb(220,8,4)" rx="2" ry="2" />
+<text  x="305.90" y="431.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (17 samples, 0.33%)</title><rect x="480.3" y="437" width="3.8" height="15.0" fill="rgb(250,116,43)" rx="2" ry="2" />
+<text  x="483.27" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (130 samples, 2.51%)</title><rect x="191.7" y="485" width="29.6" height="15.0" fill="rgb(235,113,13)" rx="2" ry="2" />
+<text  x="194.70" y="495.5" >st..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::IteratorAt (18 samples, 0.35%)</title><rect x="955.3" y="405" width="4.1" height="15.0" fill="rgb(228,130,8)" rx="2" ry="2" />
+<text  x="958.32" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="767.0" y="389" width="0.3" height="15.0" fill="rgb(235,99,8)" rx="2" ry="2" />
+<text  x="770.03" y="399.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::WaitToRead (6 samples, 0.12%)</title><rect x="616.5" y="485" width="1.4" height="15.0" fill="rgb(238,81,44)" rx="2" ry="2" />
+<text  x="619.49" y="495.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_ptr (59 samples, 1.14%)</title><rect x="408.4" y="469" width="13.4" height="15.0" fill="rgb(223,178,15)" rx="2" ry="2" />
+<text  x="411.41" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::Schedule&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt; &gt; (421 samples, 8.11%)</title><rect x="835.2" y="517" width="95.8" height="15.0" fill="rgb(251,163,52)" rx="2" ry="2" />
+<text  x="838.25" y="527.5" >vtkm::cont:..</text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (5 samples, 0.10%)</title><rect x="572.4" y="469" width="1.1" height="15.0" fill="rgb(211,154,12)" rx="2" ry="2" />
+<text  x="575.37" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (31 samples, 0.60%)</title><rect x="920.5" y="437" width="7.1" height="15.0" fill="rgb(235,44,44)" rx="2" ry="2" />
+<text  x="923.53" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::IteratorAt (3 samples, 0.06%)</title><rect x="959.4" y="421" width="0.7" height="15.0" fill="rgb(236,188,22)" rx="2" ry="2" />
+<text  x="962.41" y="431.5" ></text>
+</g>
+<g >
+<title>std::__addressof&lt;std::mutex&gt; (5 samples, 0.10%)</title><rect x="292.7" y="453" width="1.1" height="15.0" fill="rgb(226,136,1)" rx="2" ry="2" />
+<text  x="295.66" y="463.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__atomic_add_dispatch (4 samples, 0.08%)</title><rect x="640.8" y="437" width="0.9" height="15.0" fill="rgb(244,41,32)" rx="2" ry="2" />
+<text  x="643.82" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl,  (37 samples, 0.71%)</title><rect x="317.5" y="485" width="8.4" height="15.0" fill="rgb(209,143,14)" rx="2" ry="2" />
+<text  x="320.45" y="495.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (15 samples, 0.29%)</title><rect x="677.9" y="357" width="3.4" height="15.0" fill="rgb(230,10,0)" rx="2" ry="2" />
+<text  x="680.89" y="367.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (22 samples, 0.42%)</title><rect x="808.6" y="453" width="5.0" height="15.0" fill="rgb(228,86,16)" rx="2" ry="2" />
+<text  x="811.64" y="463.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (6 samples, 0.12%)</title><rect x="630.8" y="453" width="1.4" height="15.0" fill="rgb(217,31,18)" rx="2" ry="2" />
+<text  x="633.81" y="463.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::unlock (2 samples, 0.04%)</title><rect x="221.3" y="501" width="0.4" height="15.0" fill="rgb(254,62,15)" rx="2" ry="2" />
+<text  x="224.26" y="511.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="373" width="0.2" height="15.0" fill="rgb(252,169,52)" rx="2" ry="2" />
+<text  x="742.51" y="383.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::Schedule&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::OverlapKernel&gt; (241 samples, 4.64%)</title><rect x="931.0" y="517" width="54.8" height="15.0" fill="rgb(233,144,13)" rx="2" ry="2" />
+<text  x="933.99" y="527.5" >vtkm:..</text>
+</g>
+<g >
+<title>std::get&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (35 samples, 0.67%)</title><rect x="413.9" y="453" width="7.9" height="15.0" fill="rgb(226,181,3)" rx="2" ry="2" />
+<text  x="416.87" y="463.5" ></text>
+</g>
+<g >
+<title>__posix_memalign (1 samples, 0.02%)</title><rect x="1156.6" y="645" width="0.2" height="15.0" fill="rgb(208,54,46)" rx="2" ry="2" />
+<text  x="1159.57" y="655.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="357" width="1.3" height="15.0" fill="rgb(216,79,16)" rx="2" ry="2" />
+<text  x="337.05" y="367.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl,  (194 samples, 3.74%)</title><rect x="116.0" y="501" width="44.1" height="15.0" fill="rgb(239,26,1)" rx="2" ry="2" />
+<text  x="118.97" y="511.5" >std:..</text>
+</g>
+<g >
+<title>std::_Sp_counted_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct*,  (15 samples, 0.29%)</title><rect x="677.9" y="341" width="3.4" height="15.0" fill="rgb(227,113,39)" rx="2" ry="2" />
+<text  x="680.89" y="351.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (44 samples, 0.85%)</title><rect x="460.3" y="485" width="10.0" height="15.0" fill="rgb(235,31,31)" rx="2" ry="2" />
+<text  x="463.26" y="495.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="485" width="1.4" height="15.0" fill="rgb(242,13,4)" rx="2" ry="2" />
+<text  x="1191.64" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Set (19 samples, 0.37%)</title><rect x="796.8" y="421" width="4.3" height="15.0" fill="rgb(234,19,10)" rx="2" ry="2" />
+<text  x="799.82" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Set (4 samples, 0.08%)</title><rect x="843.7" y="453" width="0.9" height="15.0" fill="rgb(225,113,39)" rx="2" ry="2" />
+<text  x="846.66" y="463.5" ></text>
+</g>
+<g >
+<title>[unknown] (16 samples, 0.31%)</title><rect x="916.9" y="389" width="3.6" height="15.0" fill="rgb(246,134,29)" rx="2" ry="2" />
+<text  x="919.89" y="399.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::FunctorTiling1DExecute&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt; &gt; (246 samples, 4.74%)</title><rect x="837.3" y="469" width="55.9" height="15.0" fill="rgb(207,108,22)" rx="2" ry="2" />
+<text  x="840.30" y="479.5" >vtkm:..</text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::unique_lock (4 samples, 0.08%)</title><rect x="269.5" y="485" width="0.9" height="15.0" fill="rgb(219,79,45)" rx="2" ry="2" />
+<text  x="272.47" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::ArrayHandle&lt;long long, vtkm::cont::StorageTagBasic&gt;::GetLock (1 samples, 0.02%)</title><rect x="91.9" y="517" width="0.2" height="15.0" fill="rgb(208,41,1)" rx="2" ry="2" />
+<text  x="94.87" y="527.5" ></text>
+</g>
+<g >
+<title>std::tuple&lt;vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::tuple&lt;vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt;, true&gt; (8 samples, 0.15%)</title><rect x="390.9" y="469" width="1.8" height="15.0" fill="rgb(247,155,12)" rx="2" ry="2" />
+<text  x="393.90" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (30 samples, 0.58%)</title><rect x="886.4" y="341" width="6.8" height="15.0" fill="rgb(211,92,24)" rx="2" ry="2" />
+<text  x="889.42" y="351.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_head (9 samples, 0.17%)</title><rect x="450.0" y="389" width="2.1" height="15.0" fill="rgb(232,97,24)" rx="2" ry="2" />
+<text  x="453.03" y="399.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt;::operator (52 samples, 1.00%)</title><rect x="908.7" y="437" width="11.8" height="15.0" fill="rgb(212,32,53)" rx="2" ry="2" />
+<text  x="911.70" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="437" width="0.3" height="15.0" fill="rgb(235,166,18)" rx="2" ry="2" />
+<text  x="528.53" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="245" width="3.4" height="15.0" fill="rgb(229,208,19)" rx="2" ry="2" />
+<text  x="680.89" y="255.5" ></text>
+</g>
+<g >
+<title>[unknown] (12 samples, 0.23%)</title><rect x="917.8" y="373" width="2.7" height="15.0" fill="rgb(225,219,29)" rx="2" ry="2" />
+<text  x="920.80" y="383.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="679.9" y="69" width="1.4" height="15.0" fill="rgb(214,195,38)" rx="2" ry="2" />
+<text  x="682.93" y="79.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (28 samples, 0.54%)</title><rect x="573.5" y="469" width="6.4" height="15.0" fill="rgb(208,149,32)" rx="2" ry="2" />
+<text  x="576.51" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::Schedule&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt; &gt; &gt; (95 samples, 1.83%)</title><rect x="813.6" y="517" width="21.6" height="15.0" fill="rgb(233,6,1)" rx="2" ry="2" />
+<text  x="816.65" y="527.5" >v..</text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_Tuple_impl (4 samples, 0.08%)</title><rect x="375.4" y="453" width="0.9" height="15.0" fill="rgb(207,87,51)" rx="2" ry="2" />
+<text  x="378.44" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::StorageBasicBase::~StorageBasicBase (15 samples, 0.29%)</title><rect x="677.9" y="309" width="3.4" height="15.0" fill="rgb(215,89,5)" rx="2" ry="2" />
+<text  x="680.89" y="319.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (49 samples, 0.94%)</title><rect x="568.7" y="485" width="11.2" height="15.0" fill="rgb(212,206,41)" rx="2" ry="2" />
+<text  x="571.73" y="495.5" ></text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="889.8" y="309" width="3.4" height="15.0" fill="rgb(251,147,37)" rx="2" ry="2" />
+<text  x="892.83" y="319.5" ></text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="181" width="3.4" height="15.0" fill="rgb(247,211,2)" rx="2" ry="2" />
+<text  x="680.89" y="191.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::FunctorTiling3DExecute&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt; &gt; (161 samples, 3.10%)</title><rect x="894.4" y="469" width="36.6" height="15.0" fill="rgb(254,32,54)" rx="2" ry="2" />
+<text  x="897.37" y="479.5" >vtk..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="309" width="0.3" height="15.0" fill="rgb(242,85,54)" rx="2" ry="2" />
+<text  x="528.53" y="319.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (2 samples, 0.04%)</title><rect x="499.8" y="485" width="0.5" height="15.0" fill="rgb(205,162,46)" rx="2" ry="2" />
+<text  x="502.83" y="495.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (5 samples, 0.10%)</title><rect x="552.6" y="421" width="1.1" height="15.0" fill="rgb(225,195,13)" rx="2" ry="2" />
+<text  x="555.59" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::Storage&lt;long long, vtkm::cont::StorageTagBasic&gt;::GetPortalConst (9 samples, 0.17%)</title><rect x="1084.5" y="517" width="2.0" height="15.0" fill="rgb(230,97,28)" rx="2" ry="2" />
+<text  x="1087.48" y="527.5" ></text>
+</g>
+<g >
+<title>perf (6 samples, 0.12%)</title><rect x="1188.6" y="661" width="1.4" height="15.0" fill="rgb(243,213,26)" rx="2" ry="2" />
+<text  x="1191.64" y="671.5" ></text>
+</g>
+<g >
+<title>malloc (44 samples, 0.85%)</title><rect x="1178.6" y="645" width="10.0" height="15.0" fill="rgb(236,167,19)" rx="2" ry="2" />
+<text  x="1181.63" y="655.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl,  (17 samples, 0.33%)</title><rect x="322.0" y="453" width="3.9" height="15.0" fill="rgb(212,201,2)" rx="2" ry="2" />
+<text  x="325.00" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (2 samples, 0.04%)</title><rect x="462.8" y="469" width="0.4" height="15.0" fill="rgb(215,40,42)" rx="2" ry="2" />
+<text  x="465.76" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (59 samples, 1.14%)</title><rect x="641.7" y="437" width="13.4" height="15.0" fill="rgb(209,206,38)" rx="2" ry="2" />
+<text  x="644.73" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (23 samples, 0.44%)</title><rect x="346.8" y="437" width="5.2" height="15.0" fill="rgb(247,94,4)" rx="2" ry="2" />
+<text  x="349.79" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="10.0" y="629" width="0.2" height="15.0" fill="rgb(214,140,1)" rx="2" ry="2" />
+<text  x="13.00" y="639.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="835.0" y="389" width="0.2" height="15.0" fill="rgb(205,37,54)" rx="2" ry="2" />
+<text  x="838.02" y="399.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel::operator (166 samples, 3.20%)</title><rect x="770.9" y="453" width="37.7" height="15.0" fill="rgb(210,128,22)" rx="2" ry="2" />
+<text  x="773.89" y="463.5" >vtk..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="1156.8" y="613" width="0.2" height="15.0" fill="rgb(243,181,48)" rx="2" ry="2" />
+<text  x="1159.80" y="623.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl,  (21 samples, 0.40%)</title><rect x="79.6" y="517" width="4.8" height="15.0" fill="rgb(220,124,41)" rx="2" ry="2" />
+<text  x="82.59" y="527.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (37 samples, 0.71%)</title><rect x="592.8" y="437" width="8.5" height="15.0" fill="rgb(244,221,35)" rx="2" ry="2" />
+<text  x="595.84" y="447.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (95 samples, 1.83%)</title><rect x="1157.0" y="645" width="21.6" height="15.0" fill="rgb(229,95,14)" rx="2" ry="2" />
+<text  x="1160.03" y="655.5" >c..</text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl,  (3 samples, 0.06%)</title><rect x="257.4" y="469" width="0.7" height="15.0" fill="rgb(209,117,1)" rx="2" ry="2" />
+<text  x="260.42" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::GetNumberOfValues (2 samples, 0.04%)</title><rect x="720.4" y="421" width="0.5" height="15.0" fill="rgb(242,73,50)" rx="2" ry="2" />
+<text  x="723.41" y="431.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (82 samples, 1.58%)</title><rect x="535.1" y="437" width="18.6" height="15.0" fill="rgb(226,166,38)" rx="2" ry="2" />
+<text  x="538.08" y="447.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_construct&lt;char const*&gt; (78 samples, 1.50%)</title><rect x="1126.1" y="629" width="17.7" height="15.0" fill="rgb(254,124,1)" rx="2" ry="2" />
+<text  x="1129.10" y="639.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (23 samples, 0.44%)</title><rect x="465.0" y="453" width="5.3" height="15.0" fill="rgb(243,186,15)" rx="2" ry="2" />
+<text  x="468.04" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::OverlapKernel::operator (107 samples, 2.06%)</title><rect x="948.0" y="437" width="24.4" height="15.0" fill="rgb(245,109,52)" rx="2" ry="2" />
+<text  x="951.04" y="447.5" >v..</text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="197" width="3.4" height="15.0" fill="rgb(252,147,8)" rx="2" ry="2" />
+<text  x="680.89" y="207.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::IteratorAt (6 samples, 0.12%)</title><rect x="795.5" y="421" width="1.3" height="15.0" fill="rgb(212,214,5)" rx="2" ry="2" />
+<text  x="798.45" y="431.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (20 samples, 0.39%)</title><rect x="278.1" y="437" width="4.6" height="15.0" fill="rgb(222,127,44)" rx="2" ry="2" />
+<text  x="281.11" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::TaskTiling1D::operator (377 samples, 7.27%)</title><rect x="681.5" y="485" width="85.8" height="15.0" fill="rgb(222,132,9)" rx="2" ry="2" />
+<text  x="684.52" y="495.5" >vtkm::exec..</text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::owns_lock (1 samples, 0.02%)</title><rect x="484.1" y="469" width="0.3" height="15.0" fill="rgb(231,165,40)" rx="2" ry="2" />
+<text  x="487.14" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="325" width="0.3" height="15.0" fill="rgb(207,123,28)" rx="2" ry="2" />
+<text  x="528.53" y="335.5" ></text>
+</g>
+<g >
+<title>[unknown] (21 samples, 0.40%)</title><rect x="915.8" y="405" width="4.7" height="15.0" fill="rgb(243,77,15)" rx="2" ry="2" />
+<text  x="918.75" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="10.2" y="565" width="0.7" height="15.0" fill="rgb(247,20,10)" rx="2" ry="2" />
+<text  x="13.23" y="575.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::IteratorAt (3 samples, 0.06%)</title><rect x="1046.3" y="501" width="0.7" height="15.0" fill="rgb(238,58,1)" rx="2" ry="2" />
+<text  x="1049.28" y="511.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="533" width="1.4" height="15.0" fill="rgb(242,139,33)" rx="2" ry="2" />
+<text  x="1191.64" y="543.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::GetControlArrayValidPointer (3 samples, 0.06%)</title><rect x="990.3" y="517" width="0.7" height="15.0" fill="rgb(234,90,51)" rx="2" ry="2" />
+<text  x="993.34" y="527.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (1 samples, 0.02%)</title><rect x="336.3" y="453" width="0.3" height="15.0" fill="rgb(228,117,28)" rx="2" ry="2" />
+<text  x="339.32" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (8 samples, 0.15%)</title><rect x="586.2" y="453" width="1.9" height="15.0" fill="rgb(232,220,29)" rx="2" ry="2" />
+<text  x="589.24" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (19 samples, 0.37%)</title><rect x="347.7" y="421" width="4.3" height="15.0" fill="rgb(252,116,4)" rx="2" ry="2" />
+<text  x="350.70" y="431.5" ></text>
+</g>
+<g >
+<title>std::__get_helper&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (5 samples, 0.10%)</title><rect x="412.7" y="453" width="1.2" height="15.0" fill="rgb(250,17,46)" rx="2" ry="2" />
+<text  x="415.73" y="463.5" ></text>
+</g>
+<g >
+<title>main (4,752 samples, 91.58%)</title><rect x="10.9" y="613" width="1080.6" height="15.0" fill="rgb(210,207,8)" rx="2" ry="2" />
+<text  x="13.91" y="623.5" >main</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::Get (70 samples, 1.35%)</title><rect x="1030.4" y="501" width="15.9" height="15.0" fill="rgb(217,116,36)" rx="2" ry="2" />
+<text  x="1033.36" y="511.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::IsControlArrayValid (105 samples, 2.02%)</title><rect x="471.2" y="485" width="23.9" height="15.0" fill="rgb(243,105,37)" rx="2" ry="2" />
+<text  x="474.18" y="495.5" >v..</text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (41 samples, 0.79%)</title><rect x="273.3" y="469" width="9.4" height="15.0" fill="rgb(236,97,10)" rx="2" ry="2" />
+<text  x="276.33" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::Token::~Token (272 samples, 5.24%)</title><rect x="392.7" y="501" width="61.9" height="15.0" fill="rgb(253,16,11)" rx="2" ry="2" />
+<text  x="395.72" y="511.5" >vtkm::..</text>
+</g>
+<g >
+<title>std::shared_ptr&lt;bool&gt;::shared_ptr (8 samples, 0.15%)</title><rect x="188.1" y="501" width="1.8" height="15.0" fill="rgb(218,227,3)" rx="2" ry="2" />
+<text  x="191.06" y="511.5" ></text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="261" width="3.4" height="15.0" fill="rgb(243,138,42)" rx="2" ry="2" />
+<text  x="680.89" y="271.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (2 samples, 0.04%)</title><rect x="231.7" y="437" width="0.5" height="15.0" fill="rgb(234,69,36)" rx="2" ry="2" />
+<text  x="234.72" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt;::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt; (164 samples, 3.16%)</title><rect x="617.9" y="501" width="37.2" height="15.0" fill="rgb(233,199,16)" rx="2" ry="2" />
+<text  x="620.85" y="511.5" >vtk..</text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_ptr (9 samples, 0.17%)</title><rect x="435.2" y="453" width="2.1" height="15.0" fill="rgb(211,14,6)" rx="2" ry="2" />
+<text  x="438.25" y="463.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (3 samples, 0.06%)</title><rect x="1058.1" y="469" width="0.7" height="15.0" fill="rgb(225,97,48)" rx="2" ry="2" />
+<text  x="1061.11" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;1ul, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_Tuple_impl (13 samples, 0.25%)</title><rect x="387.3" y="421" width="2.9" height="15.0" fill="rgb(226,29,28)" rx="2" ry="2" />
+<text  x="390.26" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (1 samples, 0.02%)</title><rect x="835.2" y="485" width="0.3" height="15.0" fill="rgb(228,97,2)" rx="2" ry="2" />
+<text  x="838.25" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::~InternalStruct (15 samples, 0.29%)</title><rect x="677.9" y="325" width="3.4" height="15.0" fill="rgb(217,70,34)" rx="2" ry="2" />
+<text  x="680.89" y="335.5" ></text>
+</g>
+<g >
+<title>_dl_new_object (1 samples, 0.02%)</title><rect x="1156.8" y="645" width="0.2" height="15.0" fill="rgb(228,4,13)" rx="2" ry="2" />
+<text  x="1159.80" y="655.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;0ul, vtkm::cont::Token::InternalStruct*, false&gt;::_Head_base (14 samples, 0.27%)</title><rect x="383.6" y="421" width="3.2" height="15.0" fill="rgb(233,15,54)" rx="2" ry="2" />
+<text  x="386.62" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (41 samples, 0.79%)</title><rect x="972.4" y="437" width="9.3" height="15.0" fill="rgb(221,23,6)" rx="2" ry="2" />
+<text  x="975.37" y="447.5" ></text>
+</g>
+<g >
+<title>std::__addressof&lt;std::mutex&gt; (1 samples, 0.02%)</title><rect x="273.1" y="469" width="0.2" height="15.0" fill="rgb(233,187,1)" rx="2" ry="2" />
+<text  x="276.11" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (4 samples, 0.08%)</title><rect x="470.3" y="485" width="0.9" height="15.0" fill="rgb(226,228,15)" rx="2" ry="2" />
+<text  x="473.27" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (2 samples, 0.04%)</title><rect x="893.9" y="469" width="0.5" height="15.0" fill="rgb(214,184,34)" rx="2" ry="2" />
+<text  x="896.92" y="479.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add_dispatch (4 samples, 0.08%)</title><rect x="201.5" y="453" width="0.9" height="15.0" fill="rgb(233,211,41)" rx="2" ry="2" />
+<text  x="204.47" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool const*, void&gt; &gt;::Get&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool const*, void&gt;, 0&gt; (134 samples, 2.58%)</title><rect x="992.4" y="517" width="30.5" height="15.0" fill="rgb(239,209,10)" rx="2" ry="2" />
+<text  x="995.39" y="527.5" >vt..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::WaitToRead (148 samples, 2.85%)</title><rect x="582.8" y="469" width="33.7" height="15.0" fill="rgb(226,111,34)" rx="2" ry="2" />
+<text  x="585.83" y="479.5" >vt..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Get (1 samples, 0.02%)</title><rect x="931.2" y="453" width="0.2" height="15.0" fill="rgb(218,79,19)" rx="2" ry="2" />
+<text  x="934.21" y="463.5" ></text>
+</g>
+<g >
+<title>std::mutex::lock (74 samples, 1.43%)</title><rect x="298.6" y="437" width="16.8" height="15.0" fill="rgb(246,147,16)" rx="2" ry="2" />
+<text  x="301.58" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="325" width="0.2" height="15.0" fill="rgb(216,187,53)" rx="2" ry="2" />
+<text  x="742.51" y="335.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (17 samples, 0.33%)</title><rect x="338.4" y="437" width="3.8" height="15.0" fill="rgb(248,202,1)" rx="2" ry="2" />
+<text  x="341.37" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::ArrayHandle&lt;long long, vtkm::cont::StorageTagBasic&gt;::GetLock (282 samples, 5.43%)</title><rect x="251.3" y="501" width="64.1" height="15.0" fill="rgb(222,87,35)" rx="2" ry="2" />
+<text  x="254.28" y="511.5" >vtkm::c..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::GetControlArray (53 samples, 1.02%)</title><rect x="497.1" y="501" width="12.1" height="15.0" fill="rgb(252,191,12)" rx="2" ry="2" />
+<text  x="500.10" y="511.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::StorageBasicBase::ReleaseResources (15 samples, 0.29%)</title><rect x="677.9" y="293" width="3.4" height="15.0" fill="rgb(224,137,35)" rx="2" ry="2" />
+<text  x="680.89" y="303.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="10.2" y="549" width="0.7" height="15.0" fill="rgb(234,149,21)" rx="2" ry="2" />
+<text  x="13.23" y="559.5" ></text>
+</g>
+<g >
+<title>[unknown] (66 samples, 1.27%)</title><rect x="878.2" y="421" width="15.0" height="15.0" fill="rgb(207,104,49)" rx="2" ry="2" />
+<text  x="881.23" y="431.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::owns_lock (4 samples, 0.08%)</title><rect x="508.2" y="469" width="1.0" height="15.0" fill="rgb(215,180,18)" rx="2" ry="2" />
+<text  x="511.24" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="613" width="1.4" height="15.0" fill="rgb(242,164,39)" rx="2" ry="2" />
+<text  x="1191.64" y="623.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool const*, void&gt; &gt;::Get&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool const*, void&gt;, 0&gt; (5 samples, 0.10%)</title><rect x="50.5" y="533" width="1.1" height="15.0" fill="rgb(241,79,50)" rx="2" ry="2" />
+<text  x="53.48" y="543.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (3 samples, 0.06%)</title><rect x="325.9" y="485" width="0.6" height="15.0" fill="rgb(220,178,34)" rx="2" ry="2" />
+<text  x="328.86" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::IsControlArrayValid (6 samples, 0.12%)</title><rect x="560.5" y="501" width="1.4" height="15.0" fill="rgb(239,112,13)" rx="2" ry="2" />
+<text  x="563.55" y="511.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (2 samples, 0.04%)</title><rect x="335.4" y="469" width="0.5" height="15.0" fill="rgb(237,82,19)" rx="2" ry="2" />
+<text  x="338.42" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (11 samples, 0.21%)</title><rect x="601.3" y="437" width="2.5" height="15.0" fill="rgb(253,142,45)" rx="2" ry="2" />
+<text  x="604.25" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::GetControlArray (1 samples, 0.02%)</title><rect x="990.1" y="517" width="0.2" height="15.0" fill="rgb(216,218,43)" rx="2" ry="2" />
+<text  x="993.11" y="527.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::OverlapKernel::operator (1 samples, 0.02%)</title><rect x="932.6" y="469" width="0.2" height="15.0" fill="rgb(230,72,6)" rx="2" ry="2" />
+<text  x="935.58" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (11 samples, 0.21%)</title><rect x="918.0" y="341" width="2.5" height="15.0" fill="rgb(217,206,4)" rx="2" ry="2" />
+<text  x="921.02" y="351.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="919.2" y="309" width="1.3" height="15.0" fill="rgb(208,225,1)" rx="2" ry="2" />
+<text  x="922.16" y="319.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::~ArrayHandleImpl (15 samples, 0.29%)</title><rect x="677.9" y="421" width="3.4" height="15.0" fill="rgb(209,173,21)" rx="2" ry="2" />
+<text  x="680.89" y="431.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_construct&lt;char const*&gt;@plt (3 samples, 0.06%)</title><rect x="34.1" y="533" width="0.7" height="15.0" fill="rgb(235,144,40)" rx="2" ry="2" />
+<text  x="37.10" y="543.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::owns_lock (4 samples, 0.08%)</title><rect x="559.6" y="469" width="0.9" height="15.0" fill="rgb(209,36,9)" rx="2" ry="2" />
+<text  x="562.64" y="479.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_ptr (46 samples, 0.89%)</title><rect x="441.6" y="437" width="10.5" height="15.0" fill="rgb(247,98,46)" rx="2" ry="2" />
+<text  x="444.61" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="133" width="3.4" height="15.0" fill="rgb(243,19,23)" rx="2" ry="2" />
+<text  x="680.89" y="143.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="565" width="1.4" height="15.0" fill="rgb(206,63,27)" rx="2" ry="2" />
+<text  x="1191.64" y="575.5" ></text>
+</g>
+<g >
+<title>[unknown] (35 samples, 0.67%)</title><rect x="885.3" y="373" width="7.9" height="15.0" fill="rgb(211,216,0)" rx="2" ry="2" />
+<text  x="888.28" y="383.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::CanRead (121 samples, 2.33%)</title><rect x="588.1" y="453" width="27.5" height="15.0" fill="rgb(246,184,51)" rx="2" ry="2" />
+<text  x="591.06" y="463.5" >v..</text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::unique_ptr&lt;std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt;, void&gt; (11 samples, 0.21%)</title><rect x="247.4" y="501" width="2.5" height="15.0" fill="rgb(251,148,6)" rx="2" ry="2" />
+<text  x="250.41" y="511.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::Run (4,752 samples, 91.58%)</title><rect x="10.9" y="581" width="1080.6" height="15.0" fill="rgb(231,173,49)" rx="2" ry="2" />
+<text  x="13.91" y="591.5" >vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::Run</text>
+</g>
+<g >
+<title>std::shared_ptr&lt;bool&gt;::shared_ptr (132 samples, 2.54%)</title><rect x="625.1" y="485" width="30.0" height="15.0" fill="rgb(240,134,44)" rx="2" ry="2" />
+<text  x="628.13" y="495.5" >st..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="428.9" y="469" width="0.2" height="15.0" fill="rgb(252,43,14)" rx="2" ry="2" />
+<text  x="431.88" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::GetNumberOfValues (33 samples, 0.64%)</title><rect x="732.2" y="405" width="7.5" height="15.0" fill="rgb(230,116,39)" rx="2" ry="2" />
+<text  x="735.24" y="415.5" ></text>
+</g>
+<g >
+<title>std::forward&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt; (5 samples, 0.10%)</title><rect x="624.0" y="485" width="1.1" height="15.0" fill="rgb(226,26,11)" rx="2" ry="2" />
+<text  x="626.99" y="495.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::basic_string (20 samples, 0.39%)</title><rect x="1149.5" y="629" width="4.6" height="15.0" fill="rgb(247,112,47)" rx="2" ry="2" />
+<text  x="1152.52" y="639.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (1 samples, 0.02%)</title><rect x="299.7" y="421" width="0.2" height="15.0" fill="rgb(240,167,15)" rx="2" ry="2" />
+<text  x="302.71" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (27 samples, 0.52%)</title><rect x="554.4" y="485" width="6.1" height="15.0" fill="rgb(247,99,42)" rx="2" ry="2" />
+<text  x="557.41" y="495.5" ></text>
+</g>
+<g >
+<title>std::__get_helper&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (28 samples, 0.54%)</title><rect x="415.5" y="437" width="6.3" height="15.0" fill="rgb(235,162,44)" rx="2" ry="2" />
+<text  x="418.46" y="447.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (15 samples, 0.29%)</title><rect x="489.4" y="453" width="3.4" height="15.0" fill="rgb(221,190,33)" rx="2" ry="2" />
+<text  x="492.37" y="463.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::lock (4 samples, 0.08%)</title><rect x="282.7" y="469" width="0.9" height="15.0" fill="rgb(229,49,36)" rx="2" ry="2" />
+<text  x="285.66" y="479.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (4 samples, 0.08%)</title><rect x="166.9" y="485" width="0.9" height="15.0" fill="rgb(216,84,2)" rx="2" ry="2" />
+<text  x="169.91" y="495.5" ></text>
+</g>
+<g >
+<title>all (5,189 samples, 100%)</title><rect x="10.0" y="677" width="1180.0" height="15.0" fill="rgb(244,191,6)" rx="2" ry="2" />
+<text  x="13.00" y="687.5" ></text>
+</g>
+<g >
+<title>std::shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl&gt;::~shared_ptr (15 samples, 0.29%)</title><rect x="677.9" y="501" width="3.4" height="15.0" fill="rgb(219,59,17)" rx="2" ry="2" />
+<text  x="680.89" y="511.5" ></text>
+</g>
+<g >
+<title>std::shared_ptr&lt;bool&gt;::~shared_ptr (138 samples, 2.66%)</title><rect x="189.9" y="501" width="31.4" height="15.0" fill="rgb(234,102,52)" rx="2" ry="2" />
+<text  x="192.88" y="511.5" >st..</text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;1ul, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_Tuple_impl (3 samples, 0.06%)</title><rect x="390.2" y="437" width="0.7" height="15.0" fill="rgb(222,166,12)" rx="2" ry="2" />
+<text  x="393.22" y="447.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;char&gt;::~allocator@plt (5 samples, 0.10%)</title><rect x="49.1" y="533" width="1.2" height="15.0" fill="rgb(219,59,6)" rx="2" ry="2" />
+<text  x="52.11" y="543.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (28 samples, 0.54%)</title><rect x="1006.5" y="485" width="6.4" height="15.0" fill="rgb(223,10,42)" rx="2" ry="2" />
+<text  x="1009.48" y="495.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;char&gt;::~allocator (6 samples, 0.12%)</title><rect x="47.7" y="533" width="1.4" height="15.0" fill="rgb(253,37,0)" rx="2" ry="2" />
+<text  x="50.75" y="543.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::ArrayPortalFromIterators (58 samples, 1.12%)</title><rect x="664.0" y="485" width="13.2" height="15.0" fill="rgb(250,77,8)" rx="2" ry="2" />
+<text  x="667.01" y="495.5" ></text>
+</g>
+<g >
+<title>strlen@plt (11 samples, 0.21%)</title><rect x="1154.1" y="629" width="2.5" height="15.0" fill="rgb(240,97,10)" rx="2" ry="2" />
+<text  x="1157.07" y="639.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (119 samples, 2.29%)</title><rect x="526.7" y="453" width="27.0" height="15.0" fill="rgb(209,143,6)" rx="2" ry="2" />
+<text  x="529.66" y="463.5" >s..</text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="679.9" y="85" width="1.4" height="15.0" fill="rgb(250,173,16)" rx="2" ry="2" />
+<text  x="682.93" y="95.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::owns_lock (10 samples, 0.19%)</title><rect x="492.8" y="453" width="2.3" height="15.0" fill="rgb(249,15,48)" rx="2" ry="2" />
+<text  x="495.78" y="463.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_ptr (6 samples, 0.12%)</title><rect x="394.3" y="485" width="1.4" height="15.0" fill="rgb(224,78,23)" rx="2" ry="2" />
+<text  x="397.31" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Get (3 samples, 0.06%)</title><rect x="946.2" y="437" width="0.7" height="15.0" fill="rgb(232,29,42)" rx="2" ry="2" />
+<text  x="949.22" y="447.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_Tuple_impl (48 samples, 0.93%)</title><rect x="379.3" y="437" width="10.9" height="15.0" fill="rgb(211,177,32)" rx="2" ry="2" />
+<text  x="382.30" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (28 samples, 0.54%)</title><rect x="276.3" y="453" width="6.4" height="15.0" fill="rgb(214,49,46)" rx="2" ry="2" />
+<text  x="279.29" y="463.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (6 samples, 0.12%)</title><rect x="193.1" y="469" width="1.3" height="15.0" fill="rgb(214,16,7)" rx="2" ry="2" />
+<text  x="196.06" y="479.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (28 samples, 0.54%)</title><rect x="335.9" y="469" width="6.3" height="15.0" fill="rgb(210,212,49)" rx="2" ry="2" />
+<text  x="338.87" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::TaskTiling3D::operator (234 samples, 4.51%)</title><rect x="932.6" y="485" width="53.2" height="15.0" fill="rgb(205,112,1)" rx="2" ry="2" />
+<text  x="935.58" y="495.5" >vtkm:..</text>
+</g>
+<g >
+<title>[unknown] (21 samples, 0.40%)</title><rect x="888.5" y="325" width="4.7" height="15.0" fill="rgb(223,168,42)" rx="2" ry="2" />
+<text  x="891.46" y="335.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="767.0" y="341" width="0.3" height="15.0" fill="rgb(215,107,22)" rx="2" ry="2" />
+<text  x="770.03" y="351.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (19 samples, 0.37%)</title><rect x="596.9" y="405" width="4.4" height="15.0" fill="rgb(205,171,22)" rx="2" ry="2" />
+<text  x="599.93" y="415.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::~unique_ptr (114 samples, 2.20%)</title><rect x="397.5" y="485" width="25.9" height="15.0" fill="rgb(209,131,8)" rx="2" ry="2" />
+<text  x="400.50" y="495.5" >s..</text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (14 samples, 0.27%)</title><rect x="76.4" y="517" width="3.2" height="15.0" fill="rgb(213,197,46)" rx="2" ry="2" />
+<text  x="79.40" y="527.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::unlock (96 samples, 1.85%)</title><rect x="225.6" y="485" width="21.8" height="15.0" fill="rgb(217,142,19)" rx="2" ry="2" />
+<text  x="228.58" y="495.5" >s..</text>
+</g>
+<g >
+<title>std::__iterator_category&lt;long long const*&gt; (1 samples, 0.02%)</title><rect x="677.0" y="453" width="0.2" height="15.0" fill="rgb(205,143,9)" rx="2" ry="2" />
+<text  x="679.98" y="463.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="357" width="0.2" height="15.0" fill="rgb(223,9,24)" rx="2" ry="2" />
+<text  x="742.51" y="367.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::ScheduleTask (241 samples, 4.64%)</title><rect x="931.0" y="501" width="54.8" height="15.0" fill="rgb(223,153,43)" rx="2" ry="2" />
+<text  x="933.99" y="511.5" >vtkm:..</text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl,  (56 samples, 1.08%)</title><rect x="255.1" y="485" width="12.8" height="15.0" fill="rgb(224,58,50)" rx="2" ry="2" />
+<text  x="258.14" y="495.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__atomic_add (51 samples, 0.98%)</title><rect x="540.1" y="405" width="11.6" height="15.0" fill="rgb(247,189,30)" rx="2" ry="2" />
+<text  x="543.08" y="415.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::GetNumberOfValues (10 samples, 0.19%)</title><rect x="1044.0" y="469" width="2.3" height="15.0" fill="rgb(226,57,30)" rx="2" ry="2" />
+<text  x="1047.01" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="405" width="0.3" height="15.0" fill="rgb(245,200,0)" rx="2" ry="2" />
+<text  x="528.53" y="415.5" ></text>
+</g>
+<g >
+<title>std::shared_ptr&lt;bool&gt;::~shared_ptr (4 samples, 0.08%)</title><rect x="88.0" y="517" width="0.9" height="15.0" fill="rgb(225,141,50)" rx="2" ry="2" />
+<text  x="91.00" y="527.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (3 samples, 0.06%)</title><rect x="191.0" y="485" width="0.7" height="15.0" fill="rgb(232,95,14)" rx="2" ry="2" />
+<text  x="194.01" y="495.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (4 samples, 0.08%)</title><rect x="1054.0" y="485" width="0.9" height="15.0" fill="rgb(244,119,1)" rx="2" ry="2" />
+<text  x="1057.01" y="495.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="597" width="1.4" height="15.0" fill="rgb(227,168,43)" rx="2" ry="2" />
+<text  x="1191.64" y="607.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Set (3 samples, 0.06%)</title><rect x="908.0" y="437" width="0.7" height="15.0" fill="rgb(238,82,40)" rx="2" ry="2" />
+<text  x="911.02" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="581" width="1.4" height="15.0" fill="rgb(210,89,50)" rx="2" ry="2" />
+<text  x="1191.64" y="591.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (24 samples, 0.46%)</title><rect x="595.8" y="421" width="5.5" height="15.0" fill="rgb(253,49,34)" rx="2" ry="2" />
+<text  x="598.79" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel::operator (3 samples, 0.06%)</title><rect x="767.3" y="469" width="0.6" height="15.0" fill="rgb(224,110,45)" rx="2" ry="2" />
+<text  x="770.26" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="421" width="0.3" height="15.0" fill="rgb(211,122,32)" rx="2" ry="2" />
+<text  x="528.53" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="389" width="0.3" height="15.0" fill="rgb(236,69,44)" rx="2" ry="2" />
+<text  x="528.53" y="399.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="680.6" y="53" width="0.7" height="15.0" fill="rgb(241,76,36)" rx="2" ry="2" />
+<text  x="683.61" y="63.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::GetNumberOfValues (1 samples, 0.02%)</title><rect x="931.7" y="405" width="0.2" height="15.0" fill="rgb(241,140,44)" rx="2" ry="2" />
+<text  x="934.67" y="415.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::~basic_string (15 samples, 0.29%)</title><rect x="40.7" y="533" width="3.4" height="15.0" fill="rgb(229,173,11)" rx="2" ry="2" />
+<text  x="43.70" y="543.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;vtkm::cont::Token::InternalStruct, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::operator bool (100 samples, 1.93%)</title><rect x="431.8" y="469" width="22.8" height="15.0" fill="rgb(250,87,53)" rx="2" ry="2" />
+<text  x="434.83" y="479.5" >s..</text>
+</g>
+<g >
+<title>std::mutex::lock (4 samples, 0.08%)</title><rect x="293.8" y="453" width="0.9" height="15.0" fill="rgb(229,14,0)" rx="2" ry="2" />
+<text  x="296.80" y="463.5" ></text>
+</g>
+<g >
+<title>[unknown] (12 samples, 0.23%)</title><rect x="917.8" y="357" width="2.7" height="15.0" fill="rgb(220,58,53)" rx="2" ry="2" />
+<text  x="920.80" y="367.5" ></text>
+</g>
+<g >
+<title>std::get&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (33 samples, 0.64%)</title><rect x="444.6" y="421" width="7.5" height="15.0" fill="rgb(210,23,33)" rx="2" ry="2" />
+<text  x="447.57" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="10.2" y="581" width="0.7" height="15.0" fill="rgb(234,14,14)" rx="2" ry="2" />
+<text  x="13.23" y="591.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (19 samples, 0.37%)</title><rect x="575.6" y="453" width="4.3" height="15.0" fill="rgb(218,16,39)" rx="2" ry="2" />
+<text  x="578.55" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (27 samples, 0.52%)</title><rect x="478.0" y="453" width="6.1" height="15.0" fill="rgb(205,182,7)" rx="2" ry="2" />
+<text  x="481.00" y="463.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="453" width="0.3" height="15.0" fill="rgb(227,74,42)" rx="2" ry="2" />
+<text  x="528.53" y="463.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (1 samples, 0.02%)</title><rect x="230.6" y="453" width="0.2" height="15.0" fill="rgb(208,3,31)" rx="2" ry="2" />
+<text  x="233.58" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Set (115 samples, 2.22%)</title><rect x="741.1" y="437" width="26.2" height="15.0" fill="rgb(243,113,54)" rx="2" ry="2" />
+<text  x="744.10" y="447.5" >v..</text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt; &gt;::operator (214 samples, 4.12%)</title><rect x="844.6" y="453" width="48.6" height="15.0" fill="rgb(205,214,5)" rx="2" ry="2" />
+<text  x="847.57" y="463.5" >vtkm..</text>
+</g>
+<g >
+<title>__libc_start_main (4,752 samples, 91.58%)</title><rect x="10.9" y="629" width="1080.6" height="15.0" fill="rgb(240,95,18)" rx="2" ry="2" />
+<text  x="13.91" y="639.5" >__libc_start_main</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::ArrayPortalFromIterators (1 samples, 0.02%)</title><rect x="655.1" y="501" width="0.3" height="15.0" fill="rgb(225,144,9)" rx="2" ry="2" />
+<text  x="658.15" y="511.5" ></text>
+</g>
+<g >
+<title>[unknown] (5 samples, 0.10%)</title><rect x="1188.9" y="453" width="1.1" height="15.0" fill="rgb(236,43,43)" rx="2" ry="2" />
+<text  x="1191.86" y="463.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (3 samples, 0.06%)</title><rect x="220.6" y="437" width="0.7" height="15.0" fill="rgb(250,23,53)" rx="2" ry="2" />
+<text  x="223.58" y="447.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (110 samples, 2.12%)</title><rect x="160.1" y="501" width="25.0" height="15.0" fill="rgb(246,158,18)" rx="2" ry="2" />
+<text  x="163.09" y="511.5" >s..</text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (5 samples, 0.10%)</title><rect x="114.8" y="501" width="1.2" height="15.0" fill="rgb(250,222,54)" rx="2" ry="2" />
+<text  x="117.83" y="511.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (7 samples, 0.13%)</title><rect x="267.9" y="485" width="1.6" height="15.0" fill="rgb(208,83,18)" rx="2" ry="2" />
+<text  x="270.88" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::Token::Token (13 samples, 0.25%)</title><rect x="985.8" y="517" width="2.9" height="15.0" fill="rgb(228,181,3)" rx="2" ry="2" />
+<text  x="988.79" y="527.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::owns_lock (3 samples, 0.06%)</title><rect x="359.3" y="437" width="0.7" height="15.0" fill="rgb(227,33,47)" rx="2" ry="2" />
+<text  x="362.29" y="447.5" ></text>
+</g>
+<g >
+<title>std::__distance&lt;long long const*&gt; (8 samples, 0.15%)</title><rect x="675.2" y="453" width="1.8" height="15.0" fill="rgb(216,53,24)" rx="2" ry="2" />
+<text  x="678.16" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (44 samples, 0.85%)</title><rect x="605.6" y="421" width="10.0" height="15.0" fill="rgb(205,219,43)" rx="2" ry="2" />
+<text  x="608.57" y="431.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::unique_lock (140 samples, 2.70%)</title><rect x="283.6" y="469" width="31.8" height="15.0" fill="rgb(239,197,41)" rx="2" ry="2" />
+<text  x="286.57" y="479.5" >st..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::Get (2 samples, 0.04%)</title><rect x="1084.0" y="517" width="0.5" height="15.0" fill="rgb(215,149,46)" rx="2" ry="2" />
+<text  x="1087.03" y="527.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::GetLock (198 samples, 3.82%)</title><rect x="270.4" y="485" width="45.0" height="15.0" fill="rgb(241,217,1)" rx="2" ry="2" />
+<text  x="273.38" y="495.5" >vtkm..</text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (3 samples, 0.06%)</title><rect x="623.3" y="485" width="0.7" height="15.0" fill="rgb(238,39,13)" rx="2" ry="2" />
+<text  x="626.31" y="495.5" ></text>
+</g>
+<g >
+<title>[unknown] (2 samples, 0.04%)</title><rect x="10.5" y="517" width="0.4" height="15.0" fill="rgb(228,10,52)" rx="2" ry="2" />
+<text  x="13.45" y="527.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add_dispatch (57 samples, 1.10%)</title><rect x="1070.2" y="437" width="12.9" height="15.0" fill="rgb(215,125,22)" rx="2" ry="2" />
+<text  x="1073.16" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (35 samples, 0.67%)</title><rect x="885.3" y="389" width="7.9" height="15.0" fill="rgb(245,178,21)" rx="2" ry="2" />
+<text  x="888.28" y="399.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::~unique_lock (5 samples, 0.10%)</title><rect x="90.7" y="517" width="1.2" height="15.0" fill="rgb(236,187,0)" rx="2" ry="2" />
+<text  x="93.73" y="527.5" ></text>
+</g>
+<g >
+<title>operator new (15 samples, 0.29%)</title><rect x="1122.7" y="629" width="3.4" height="15.0" fill="rgb(238,138,42)" rx="2" ry="2" />
+<text  x="1125.69" y="639.5" ></text>
+</g>
+<g >
+<title>std::uniform_int_distribution&lt;long long&gt;::param_type::b (2 samples, 0.04%)</title><rect x="90.3" y="485" width="0.4" height="15.0" fill="rgb(248,26,48)" rx="2" ry="2" />
+<text  x="93.27" y="495.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (2 samples, 0.04%)</title><rect x="605.1" y="421" width="0.5" height="15.0" fill="rgb(234,21,22)" rx="2" ry="2" />
+<text  x="608.12" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="893.0" y="261" width="0.2" height="15.0" fill="rgb(207,140,12)" rx="2" ry="2" />
+<text  x="896.01" y="271.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (160 samples, 3.08%)</title><rect x="517.3" y="469" width="36.4" height="15.0" fill="rgb(217,170,26)" rx="2" ry="2" />
+<text  x="520.34" y="479.5" >std..</text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (11 samples, 0.21%)</title><rect x="557.1" y="469" width="2.5" height="15.0" fill="rgb(224,204,15)" rx="2" ry="2" />
+<text  x="560.13" y="479.5" ></text>
+</g>
+<g >
+<title>std::uniform_int_distribution&lt;long long&gt;::operator (1 samples, 0.02%)</title><rect x="50.3" y="533" width="0.2" height="15.0" fill="rgb(217,56,10)" rx="2" ry="2" />
+<text  x="53.25" y="543.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::basic_string (26 samples, 0.50%)</title><rect x="34.8" y="533" width="5.9" height="15.0" fill="rgb(234,34,28)" rx="2" ry="2" />
+<text  x="37.79" y="543.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::GenericClearArrayKernel&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt; &gt;::operator (6 samples, 0.12%)</title><rect x="813.6" y="469" width="1.4" height="15.0" fill="rgb(220,112,8)" rx="2" ry="2" />
+<text  x="816.65" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::GetWriteCount (4 samples, 0.08%)</title><rect x="615.6" y="453" width="0.9" height="15.0" fill="rgb(221,35,8)" rx="2" ry="2" />
+<text  x="618.58" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (101 samples, 1.95%)</title><rect x="632.2" y="453" width="22.9" height="15.0" fill="rgb(231,24,19)" rx="2" ry="2" />
+<text  x="635.18" y="463.5" >s..</text>
+</g>
+<g >
+<title>std::_Head_base&lt;0ul, vtkm::cont::Token::InternalStruct*, false&gt;::_M_head (3 samples, 0.06%)</title><rect x="417.1" y="421" width="0.6" height="15.0" fill="rgb(245,32,53)" rx="2" ry="2" />
+<text  x="420.05" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="165" width="3.4" height="15.0" fill="rgb(249,67,6)" rx="2" ry="2" />
+<text  x="680.89" y="175.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;0ul, vtkm::cont::Token::InternalStruct*, false&gt;::_M_head (4 samples, 0.08%)</title><rect x="451.2" y="373" width="0.9" height="15.0" fill="rgb(219,180,22)" rx="2" ry="2" />
+<text  x="454.16" y="383.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add_dispatch (61 samples, 1.18%)</title><rect x="206.7" y="437" width="13.9" height="15.0" fill="rgb(217,165,29)" rx="2" ry="2" />
+<text  x="209.70" y="447.5" ></text>
+</g>
+<g >
+<title>malloc (36 samples, 0.69%)</title><rect x="1112.5" y="629" width="8.1" height="15.0" fill="rgb(215,7,7)" rx="2" ry="2" />
+<text  x="1115.46" y="639.5" ></text>
+</g>
+<g >
+<title>vtkm::detail::VecBase&lt;long long, 3, vtkm::Vec&lt;long long, 3&gt; &gt;::operator[] (15 samples, 0.29%)</title><rect x="927.6" y="453" width="3.4" height="15.0" fill="rgb(234,28,34)" rx="2" ry="2" />
+<text  x="930.58" y="463.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (34 samples, 0.66%)</title><rect x="344.3" y="453" width="7.7" height="15.0" fill="rgb(218,198,20)" rx="2" ry="2" />
+<text  x="347.28" y="463.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (12 samples, 0.23%)</title><rect x="356.6" y="437" width="2.7" height="15.0" fill="rgb(225,3,28)" rx="2" ry="2" />
+<text  x="359.56" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::GetNumberOfValues (4 samples, 0.08%)</title><rect x="958.5" y="389" width="0.9" height="15.0" fill="rgb(221,204,37)" rx="2" ry="2" />
+<text  x="961.50" y="399.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl,  (107 samples, 2.06%)</title><rect x="135.8" y="485" width="24.3" height="15.0" fill="rgb(209,123,35)" rx="2" ry="2" />
+<text  x="138.75" y="495.5" >s..</text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::Schedule&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel&gt; (582 samples, 11.22%)</title><rect x="681.3" y="517" width="132.3" height="15.0" fill="rgb(214,62,0)" rx="2" ry="2" />
+<text  x="684.30" y="527.5" >vtkm::cont::Devi..</text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="389" width="0.2" height="15.0" fill="rgb(232,60,36)" rx="2" ry="2" />
+<text  x="742.51" y="399.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (2 samples, 0.04%)</title><rect x="346.3" y="437" width="0.5" height="15.0" fill="rgb(235,73,14)" rx="2" ry="2" />
+<text  x="349.33" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::WaitToRead (243 samples, 4.68%)</title><rect x="562.6" y="501" width="55.3" height="15.0" fill="rgb(253,100,11)" rx="2" ry="2" />
+<text  x="565.59" y="511.5" >vtkm:..</text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::FunctorTiling3DExecute&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::AddArrayKernel&gt; (196 samples, 3.78%)</title><rect x="769.1" y="469" width="44.5" height="15.0" fill="rgb(240,187,40)" rx="2" ry="2" />
+<text  x="772.07" y="479.5" >vtkm..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool const*, void&gt;::Get (44 samples, 0.85%)</title><rect x="1012.9" y="501" width="10.0" height="15.0" fill="rgb(225,42,27)" rx="2" ry="2" />
+<text  x="1015.85" y="511.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Set (54 samples, 1.04%)</title><rect x="960.1" y="421" width="12.3" height="15.0" fill="rgb(210,124,3)" rx="2" ry="2" />
+<text  x="963.09" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::CheckControlArrayValid (178 samples, 3.43%)</title><rect x="454.6" y="501" width="40.5" height="15.0" fill="rgb(245,121,37)" rx="2" ry="2" />
+<text  x="457.58" y="511.5" >vtk..</text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (20 samples, 0.39%)</title><rect x="1025.8" y="501" width="4.6" height="15.0" fill="rgb(226,184,5)" rx="2" ry="2" />
+<text  x="1028.81" y="511.5" ></text>
+</g>
+<g >
+<title>std::unique_lock&lt;std::mutex&gt;::mutex (20 samples, 0.39%)</title><rect x="609.4" y="405" width="4.6" height="15.0" fill="rgb(235,172,7)" rx="2" ry="2" />
+<text  x="612.44" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="1156.8" y="629" width="0.2" height="15.0" fill="rgb(221,26,3)" rx="2" ry="2" />
+<text  x="1159.80" y="639.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::TestAll::operator (4,752 samples, 91.58%)</title><rect x="10.9" y="549" width="1080.6" height="15.0" fill="rgb(219,96,21)" rx="2" ry="2" />
+<text  x="13.91" y="559.5" >vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::TestAll::operator</text>
+</g>
+<g >
+<title>[unknown] (2 samples, 0.04%)</title><rect x="920.1" y="277" width="0.4" height="15.0" fill="rgb(249,107,2)" rx="2" ry="2" />
+<text  x="923.07" y="287.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;0ul, vtkm::cont::Token::InternalStruct*, false&gt;::_Head_base (1 samples, 0.02%)</title><rect x="379.1" y="437" width="0.2" height="15.0" fill="rgb(241,107,6)" rx="2" ry="2" />
+<text  x="382.08" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="919.8" y="293" width="0.7" height="15.0" fill="rgb(235,225,8)" rx="2" ry="2" />
+<text  x="922.84" y="303.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::Set (50 samples, 0.96%)</title><rect x="823.9" y="437" width="11.3" height="15.0" fill="rgb(252,151,29)" rx="2" ry="2" />
+<text  x="826.88" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="720.2" y="421" width="0.2" height="15.0" fill="rgb(233,29,34)" rx="2" ry="2" />
+<text  x="723.18" y="431.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;bool,  (125 samples, 2.41%)</title><rect x="626.7" y="469" width="28.4" height="15.0" fill="rgb(248,147,46)" rx="2" ry="2" />
+<text  x="629.72" y="479.5" >st..</text>
+</g>
+<g >
+<title>std::get&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (7 samples, 0.13%)</title><rect x="421.8" y="469" width="1.6" height="15.0" fill="rgb(207,35,50)" rx="2" ry="2" />
+<text  x="424.83" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Set (44 samples, 0.85%)</title><rect x="910.5" y="421" width="10.0" height="15.0" fill="rgb(225,65,23)" rx="2" ry="2" />
+<text  x="913.52" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="835.0" y="373" width="0.2" height="15.0" fill="rgb(237,89,13)" rx="2" ry="2" />
+<text  x="838.02" y="383.5" ></text>
+</g>
+<g >
+<title>_dl_sysdep_start (1 samples, 0.02%)</title><rect x="1112.2" y="629" width="0.3" height="15.0" fill="rgb(236,18,18)" rx="2" ry="2" />
+<text  x="1115.23" y="639.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock@plt (1 samples, 0.02%)</title><rect x="315.2" y="421" width="0.2" height="15.0" fill="rgb(206,201,20)" rx="2" ry="2" />
+<text  x="318.18" y="431.5" ></text>
+</g>
+<g >
+<title>UnitTests_vtkm_ (5,183 samples, 99.88%)</title><rect x="10.0" y="661" width="1178.6" height="15.0" fill="rgb(234,176,0)" rx="2" ry="2" />
+<text  x="13.00" y="671.5" >UnitTests_vtkm_</text>
+</g>
+<g >
+<title>std::tuple&lt;vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::tuple&lt;vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt;, true&gt; (64 samples, 1.23%)</title><rect x="376.3" y="453" width="14.6" height="15.0" fill="rgb(207,167,8)" rx="2" ry="2" />
+<text  x="379.35" y="463.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;char&gt;::allocator (12 samples, 0.23%)</title><rect x="44.1" y="533" width="2.7" height="15.0" fill="rgb(221,155,25)" rx="2" ry="2" />
+<text  x="47.11" y="543.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="437" width="1.3" height="15.0" fill="rgb(219,76,28)" rx="2" ry="2" />
+<text  x="337.05" y="447.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::IteratorAt (20 samples, 0.39%)</title><rect x="1041.7" y="485" width="4.6" height="15.0" fill="rgb(221,86,8)" rx="2" ry="2" />
+<text  x="1044.73" y="495.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__atomic_add_dispatch (52 samples, 1.00%)</title><rect x="642.9" y="421" width="11.8" height="15.0" fill="rgb(243,21,8)" rx="2" ry="2" />
+<text  x="645.87" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::testing::Testing::Assert&lt;char const  (5 samples, 0.10%)</title><rect x="1090.4" y="533" width="1.1" height="15.0" fill="rgb(207,88,30)" rx="2" ry="2" />
+<text  x="1093.40" y="543.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::Get (143 samples, 2.76%)</title><rect x="707.2" y="437" width="32.5" height="15.0" fill="rgb(225,97,40)" rx="2" ry="2" />
+<text  x="710.22" y="447.5" >vt..</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_create (18 samples, 0.35%)</title><rect x="1143.8" y="629" width="4.1" height="15.0" fill="rgb(249,2,27)" rx="2" ry="2" />
+<text  x="1146.84" y="639.5" ></text>
+</g>
+<g >
+<title>std::__get_helper&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (4 samples, 0.08%)</title><rect x="443.7" y="421" width="0.9" height="15.0" fill="rgb(248,167,1)" rx="2" ry="2" />
+<text  x="446.66" y="431.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add (44 samples, 0.85%)</title><rect x="209.2" y="421" width="10.0" height="15.0" fill="rgb(216,149,45)" rx="2" ry="2" />
+<text  x="212.21" y="431.5" ></text>
+</g>
+<g >
+<title>std::__distance&lt;long long const*&gt; (4 samples, 0.08%)</title><rect x="669.0" y="469" width="0.9" height="15.0" fill="rgb(211,35,41)" rx="2" ry="2" />
+<text  x="672.02" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (2 samples, 0.04%)</title><rect x="834.8" y="421" width="0.4" height="15.0" fill="rgb(235,123,13)" rx="2" ry="2" />
+<text  x="837.79" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="835.0" y="405" width="0.2" height="15.0" fill="rgb(225,90,20)" rx="2" ry="2" />
+<text  x="838.02" y="415.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_ptr&lt;vtkm::cont::internal::ArrayHandleImpl*,  (15 samples, 0.29%)</title><rect x="677.9" y="437" width="3.4" height="15.0" fill="rgb(233,152,16)" rx="2" ry="2" />
+<text  x="680.89" y="447.5" ></text>
+</g>
+<g >
+<title>std::distance&lt;long long const*&gt; (1 samples, 0.02%)</title><rect x="663.8" y="485" width="0.2" height="15.0" fill="rgb(218,191,41)" rx="2" ry="2" />
+<text  x="666.79" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::Token::DetachFromAll (137 samples, 2.64%)</title><rect x="423.4" y="485" width="31.2" height="15.0" fill="rgb(212,214,26)" rx="2" ry="2" />
+<text  x="426.42" y="495.5" >vt..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (34 samples, 0.66%)</title><rect x="352.2" y="453" width="7.8" height="15.0" fill="rgb(231,106,46)" rx="2" ry="2" />
+<text  x="355.24" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::SyncControlArray (141 samples, 2.72%)</title><rect x="327.9" y="485" width="32.1" height="15.0" fill="rgb(231,120,8)" rx="2" ry="2" />
+<text  x="330.91" y="495.5" >vt..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::SyncControlArray (3 samples, 0.06%)</title><rect x="561.9" y="501" width="0.7" height="15.0" fill="rgb(249,85,49)" rx="2" ry="2" />
+<text  x="564.91" y="511.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::GetNumberOfValues (2 samples, 0.04%)</title><rect x="790.9" y="405" width="0.5" height="15.0" fill="rgb(244,59,54)" rx="2" ry="2" />
+<text  x="793.91" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="10.2" y="629" width="0.7" height="15.0" fill="rgb(214,96,0)" rx="2" ry="2" />
+<text  x="13.23" y="639.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::GetControlArrayValidPointer (226 samples, 4.36%)</title><rect x="509.2" y="501" width="51.3" height="15.0" fill="rgb(249,151,24)" rx="2" ry="2" />
+<text  x="512.15" y="511.5" >vtkm:..</text>
+</g>
+<g >
+<title>_dl_relocate_object (1 samples, 0.02%)</title><rect x="1112.2" y="597" width="0.3" height="15.0" fill="rgb(211,222,39)" rx="2" ry="2" />
+<text  x="1115.23" y="607.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="469" width="1.3" height="15.0" fill="rgb(240,213,30)" rx="2" ry="2" />
+<text  x="337.05" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::GetNumberOfValues (4 samples, 0.08%)</title><rect x="794.5" y="389" width="1.0" height="15.0" fill="rgb(227,94,48)" rx="2" ry="2" />
+<text  x="797.54" y="399.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="10.2" y="613" width="0.7" height="15.0" fill="rgb(246,114,19)" rx="2" ry="2" />
+<text  x="13.23" y="623.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="405" width="1.3" height="15.0" fill="rgb(232,133,22)" rx="2" ry="2" />
+<text  x="337.05" y="415.5" ></text>
+</g>
+<g >
+<title>_dl_lookup_symbol_x (1 samples, 0.02%)</title><rect x="10.0" y="613" width="0.2" height="15.0" fill="rgb(211,206,43)" rx="2" ry="2" />
+<text  x="13.00" y="623.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_create@plt (7 samples, 0.13%)</title><rect x="1147.9" y="629" width="1.6" height="15.0" fill="rgb(205,223,50)" rx="2" ry="2" />
+<text  x="1150.93" y="639.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="277" width="0.2" height="15.0" fill="rgb(217,189,17)" rx="2" ry="2" />
+<text  x="742.51" y="287.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt;::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt; (7 samples, 0.13%)</title><rect x="1022.9" y="517" width="1.5" height="15.0" fill="rgb(208,16,14)" rx="2" ry="2" />
+<text  x="1025.86" y="527.5" ></text>
+</g>
+<g >
+<title>[unknown] (5 samples, 0.10%)</title><rect x="1188.9" y="437" width="1.1" height="15.0" fill="rgb(254,209,53)" rx="2" ry="2" />
+<text  x="1191.86" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (2 samples, 0.04%)</title><rect x="892.8" y="277" width="0.4" height="15.0" fill="rgb(237,215,51)" rx="2" ry="2" />
+<text  x="895.78" y="287.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl,  (8 samples, 0.15%)</title><rect x="133.9" y="485" width="1.9" height="15.0" fill="rgb(234,226,0)" rx="2" ry="2" />
+<text  x="136.94" y="495.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="739.5" y="261" width="0.2" height="15.0" fill="rgb(209,15,2)" rx="2" ry="2" />
+<text  x="742.51" y="271.5" ></text>
+</g>
+<g >
+<title>[unknown] (10 samples, 0.19%)</title><rect x="679.0" y="117" width="2.3" height="15.0" fill="rgb(205,122,15)" rx="2" ry="2" />
+<text  x="682.02" y="127.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="1188.6" y="629" width="1.4" height="15.0" fill="rgb(247,160,23)" rx="2" ry="2" />
+<text  x="1191.64" y="639.5" ></text>
+</g>
+<g >
+<title>[unknown] (15 samples, 0.29%)</title><rect x="677.9" y="229" width="3.4" height="15.0" fill="rgb(213,19,29)" rx="2" ry="2" />
+<text  x="680.89" y="239.5" ></text>
+</g>
+<g >
+<title>std::shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct&gt;::~shared_ptr (15 samples, 0.29%)</title><rect x="677.9" y="405" width="3.4" height="15.0" fill="rgb(228,41,41)" rx="2" ry="2" />
+<text  x="680.89" y="415.5" ></text>
+</g>
+<g >
+<title>std::mutex::unlock (5 samples, 0.10%)</title><rect x="224.4" y="485" width="1.2" height="15.0" fill="rgb(224,26,7)" rx="2" ry="2" />
+<text  x="227.44" y="495.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl,  (15 samples, 0.29%)</title><rect x="677.9" y="485" width="3.4" height="15.0" fill="rgb(206,85,7)" rx="2" ry="2" />
+<text  x="680.89" y="495.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (2 samples, 0.04%)</title><rect x="459.8" y="485" width="0.5" height="15.0" fill="rgb(245,1,14)" rx="2" ry="2" />
+<text  x="462.81" y="495.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl,  (69 samples, 1.33%)</title><rect x="144.4" y="469" width="15.7" height="15.0" fill="rgb(244,130,1)" rx="2" ry="2" />
+<text  x="147.40" y="479.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_lock (1 samples, 0.02%)</title><rect x="298.3" y="437" width="0.3" height="15.0" fill="rgb(253,165,33)" rx="2" ry="2" />
+<text  x="301.35" y="447.5" ></text>
+</g>
+<g >
+<title>std::__get_helper&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (19 samples, 0.37%)</title><rect x="447.8" y="405" width="4.3" height="15.0" fill="rgb(209,102,11)" rx="2" ry="2" />
+<text  x="450.75" y="415.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl,  (30 samples, 0.58%)</title><rect x="319.0" y="469" width="6.9" height="15.0" fill="rgb(225,50,40)" rx="2" ry="2" />
+<text  x="322.04" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Sp_counted_base&lt; (4 samples, 0.08%)</title><rect x="525.8" y="453" width="0.9" height="15.0" fill="rgb(241,37,31)" rx="2" ry="2" />
+<text  x="528.75" y="463.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long*, void&gt;::IteratorAt (18 samples, 0.35%)</title><rect x="791.4" y="405" width="4.1" height="15.0" fill="rgb(245,90,37)" rx="2" ry="2" />
+<text  x="794.36" y="415.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool*, void&gt;::GetNumberOfValues (2 samples, 0.04%)</title><rect x="954.9" y="405" width="0.4" height="15.0" fill="rgb(211,221,29)" rx="2" ry="2" />
+<text  x="957.86" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="373" width="1.3" height="15.0" fill="rgb(226,220,3)" rx="2" ry="2" />
+<text  x="337.05" y="383.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (8 samples, 0.15%)</title><rect x="301.1" y="405" width="1.8" height="15.0" fill="rgb(247,4,43)" rx="2" ry="2" />
+<text  x="304.08" y="415.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (6 samples, 0.12%)</title><rect x="219.2" y="421" width="1.4" height="15.0" fill="rgb(236,98,8)" rx="2" ry="2" />
+<text  x="222.21" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;::GetNumberOfValues (2 samples, 0.04%)</title><rect x="1041.3" y="485" width="0.4" height="15.0" fill="rgb(252,79,52)" rx="2" ry="2" />
+<text  x="1044.28" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::IsControlArrayValid (6 samples, 0.12%)</title><rect x="326.5" y="485" width="1.4" height="15.0" fill="rgb(230,16,30)" rx="2" ry="2" />
+<text  x="329.55" y="495.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="1049.5" y="469" width="0.2" height="15.0" fill="rgb(213,40,24)" rx="2" ry="2" />
+<text  x="1052.46" y="479.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (76 samples, 1.46%)</title><rect x="167.8" y="485" width="17.3" height="15.0" fill="rgb(248,69,0)" rx="2" ry="2" />
+<text  x="170.82" y="495.5" ></text>
+</g>
+<g >
+<title>std::forward&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt; (4 samples, 0.08%)</title><rect x="187.1" y="501" width="1.0" height="15.0" fill="rgb(233,191,26)" rx="2" ry="2" />
+<text  x="190.15" y="511.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (25 samples, 0.48%)</title><rect x="336.6" y="453" width="5.6" height="15.0" fill="rgb(209,113,14)" rx="2" ry="2" />
+<text  x="339.55" y="463.5" ></text>
+</g>
+<g >
+<title>std::__iterator_category&lt;long long const*&gt; (2 samples, 0.04%)</title><rect x="669.9" y="469" width="0.5" height="15.0" fill="rgb(244,180,46)" rx="2" ry="2" />
+<text  x="672.93" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::FunctorTiling3DExecute&lt;vtkm::cont::testing::TestingDeviceAdapter&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::OverlapKernel&gt; (227 samples, 4.37%)</title><rect x="934.2" y="469" width="51.6" height="15.0" fill="rgb(235,167,41)" rx="2" ry="2" />
+<text  x="937.17" y="479.5" >vtkm:..</text>
+</g>
+<g >
+<title>[unknown] (33 samples, 0.64%)</title><rect x="885.7" y="357" width="7.5" height="15.0" fill="rgb(212,148,43)" rx="2" ry="2" />
+<text  x="888.73" y="367.5" ></text>
+</g>
+<g >
+<title>__strlen_avx2 (55 samples, 1.06%)</title><rect x="1099.7" y="629" width="12.5" height="15.0" fill="rgb(207,74,5)" rx="2" ry="2" />
+<text  x="1102.72" y="639.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::DeviceAdapterAlgorithm&lt;vtkm::cont::DeviceAdapterTagSerial&gt;::ScheduleTask (421 samples, 8.11%)</title><rect x="835.2" y="501" width="95.8" height="15.0" fill="rgb(208,86,3)" rx="2" ry="2" />
+<text  x="838.25" y="511.5" >vtkm::cont:..</text>
+</g>
+<g >
+<title>[unknown] (6 samples, 0.12%)</title><rect x="334.1" y="389" width="1.3" height="15.0" fill="rgb(213,50,20)" rx="2" ry="2" />
+<text  x="337.05" y="399.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool const*, void&gt;::GetNumberOfValues (15 samples, 0.29%)</title><rect x="1019.4" y="469" width="3.5" height="15.0" fill="rgb(224,133,43)" rx="2" ry="2" />
+<text  x="1022.45" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::ArrayHandle&lt;long long, vtkm::cont::StorageTagBasic&gt;::~ArrayHandle (15 samples, 0.29%)</title><rect x="677.9" y="517" width="3.4" height="15.0" fill="rgb(220,217,54)" rx="2" ry="2" />
+<text  x="680.89" y="527.5" ></text>
+</g>
+<g >
+<title>vtkm::exec::serial::internal::TaskTiling3D::operator (166 samples, 3.20%)</title><rect x="893.2" y="485" width="37.8" height="15.0" fill="rgb(237,27,4)" rx="2" ry="2" />
+<text  x="896.24" y="495.5" >vtk..</text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalFromIterators&lt;bool const*, void&gt;::IteratorAt (32 samples, 0.62%)</title><rect x="1015.6" y="485" width="7.3" height="15.0" fill="rgb(233,116,46)" rx="2" ry="2" />
+<text  x="1018.58" y="495.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (47 samples, 0.91%)</title><rect x="484.4" y="469" width="10.7" height="15.0" fill="rgb(252,184,24)" rx="2" ry="2" />
+<text  x="487.37" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_head (18 samples, 0.35%)</title><rect x="417.7" y="421" width="4.1" height="15.0" fill="rgb(223,172,16)" rx="2" ry="2" />
+<text  x="420.74" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="835.0" y="357" width="0.2" height="15.0" fill="rgb(252,149,6)" rx="2" ry="2" />
+<text  x="838.02" y="367.5" ></text>
+</g>
+<g >
+<title>std::__shared_count&lt; (118 samples, 2.27%)</title><rect x="194.4" y="469" width="26.9" height="15.0" fill="rgb(232,81,38)" rx="2" ry="2" />
+<text  x="197.42" y="479.5" >s..</text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt;::_M_head (4 samples, 0.08%)</title><rect x="414.6" y="437" width="0.9" height="15.0" fill="rgb(209,16,37)" rx="2" ry="2" />
+<text  x="417.55" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (3 samples, 0.06%)</title><rect x="10.2" y="597" width="0.7" height="15.0" fill="rgb(235,138,17)" rx="2" ry="2" />
+<text  x="13.23" y="607.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (2 samples, 0.04%)</title><rect x="595.3" y="421" width="0.5" height="15.0" fill="rgb(211,11,30)" rx="2" ry="2" />
+<text  x="598.34" y="431.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayPortalCheck&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt; &gt;::Get&lt;vtkm::cont::internal::ArrayPortalFromIterators&lt;long long const*, void&gt;, 0&gt; (5 samples, 0.10%)</title><rect x="51.6" y="533" width="1.2" height="15.0" fill="rgb(237,132,41)" rx="2" ry="2" />
+<text  x="54.61" y="543.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr_access&lt;bool,  (14 samples, 0.27%)</title><rect x="1027.2" y="485" width="3.2" height="15.0" fill="rgb(224,69,31)" rx="2" ry="2" />
+<text  x="1030.18" y="495.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (2 samples, 0.04%)</title><rect x="654.7" y="421" width="0.4" height="15.0" fill="rgb(211,147,13)" rx="2" ry="2" />
+<text  x="657.69" y="431.5" ></text>
+</g>
+<g >
+<title>__gthread_active_p (4 samples, 0.08%)</title><rect x="551.7" y="405" width="0.9" height="15.0" fill="rgb(223,19,44)" rx="2" ry="2" />
+<text  x="554.68" y="415.5" ></text>
+</g>
+<g >
+<title>std::__shared_ptr&lt;vtkm::cont::internal::ArrayHandleImpl::InternalStruct,  (15 samples, 0.29%)</title><rect x="677.9" y="389" width="3.4" height="15.0" fill="rgb(245,74,18)" rx="2" ry="2" />
+<text  x="680.89" y="399.5" ></text>
+</g>
+<g >
+<title>UnitTestSerialDeviceAdapter (4,752 samples, 91.58%)</title><rect x="10.9" y="597" width="1080.6" height="15.0" fill="rgb(219,227,41)" rx="2" ry="2" />
+<text  x="13.91" y="607.5" >UnitTestSerialDeviceAdapter</text>
+</g>
+<g >
+<title>[unknown] (5 samples, 0.10%)</title><rect x="1188.9" y="469" width="1.1" height="15.0" fill="rgb(242,23,52)" rx="2" ry="2" />
+<text  x="1191.86" y="479.5" ></text>
+</g>
+<g >
+<title>vtkm::cont::internal::ArrayHandleImpl::InternalStruct::CheckLock (3 samples, 0.06%)</title><rect x="342.2" y="469" width="0.7" height="15.0" fill="rgb(247,227,43)" rx="2" ry="2" />
+<text  x="345.24" y="479.5" ></text>
+</g>
+<g >
+<title>[unknown] (1 samples, 0.02%)</title><rect x="525.5" y="373" width="0.3" height="15.0" fill="rgb(236,189,49)" rx="2" ry="2" />
+<text  x="528.53" y="383.5" ></text>
+</g>
+<g >
+<title>std::get&lt;0ul, vtkm::cont::Token::InternalStruct*, std::default_delete&lt;vtkm::cont::Token::InternalStruct&gt; &gt; (11 samples, 0.21%)</title><rect x="452.1" y="437" width="2.5" height="15.0" fill="rgb(240,140,38)" rx="2" ry="2" />
+<text  x="455.07" y="447.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__exchange_and_add (4 samples, 0.08%)</title><rect x="205.8" y="437" width="0.9" height="15.0" fill="rgb(242,121,22)" rx="2" ry="2" />
+<text  x="208.79" y="447.5" ></text>
+</g>
+<g >
+<title>std::mutex::unlock (76 samples, 1.46%)</title><rect x="230.1" y="469" width="17.3" height="15.0" fill="rgb(210,159,4)" rx="2" ry="2" />
+<text  x="233.13" y="479.5" ></text>
+</g>
+</g>
+</svg>

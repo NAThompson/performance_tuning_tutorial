@@ -32,14 +32,14 @@ void DotProduct(benchmark::State& state)
     {
         benchmark::DoNotOptimize(dot_product(a.data(), b.data(), a.size()));
     }
-    state.SetBytesProcessed(state.range(0)*sizeof(Real));
+    state.SetBytesProcessed(2*state.range(0)*sizeof(Real));
     state.counters["n"] = state.range(0);
     state.SetComplexityN(state.range(0));
 }
 
 BENCHMARK_TEMPLATE(DotProduct, float)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(DotProduct, double)->DenseRange(1024, 1024*1024, 1024)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(DotProduct, long double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(DotProduct, double)->DenseRange(1024, 1024*10, 1024)->Complexity(benchmark::oN)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(DotProduct, long double)->RangeMultiplier(2)->Range(1<<3, 1<<18)->Complexity()->Unit(benchmark::kMicrosecond);
 
 template<class Real>
 void Sort(benchmark::State& state)
@@ -60,9 +60,7 @@ void Sort(benchmark::State& state)
         auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
         state.SetIterationTime(elapsed_seconds.count());
         benchmark::DoNotOptimize(a[0]);
-        state.PauseTiming();
         std::shuffle(a.begin(), a.end(), rd);
-        state.ResumeTiming();
     }
     state.SetComplexityN(state.range(0));
 }

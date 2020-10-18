@@ -251,6 +251,11 @@ This CPU-bound vs memory-bound is a bit complicated . . .
 
 ---
 
+## Custom events: gotchas
+
+These events are not stable across CPU architectures, nor even `perf` versions!
+
+---
 
 ```
 $ perf list
@@ -766,6 +771,75 @@ Finally, copy-paste the console output into [scatterplot.online](https://scatter
 
 ---
 
+## `SetBytesProcessed`
+
+We can attack the memory-bound vs CPU bound problem via `SetBytesProcessed`.
+
+```
+ ./dot_bench --benchmark_filter=DotProduct\<double
+2020-10-18T12:33:41-04:00
+Running ./dot_bench
+Run on (16 X 4300 MHz CPU s)
+CPU Caches:
+  L1 Data 32 KiB (x8)
+  L1 Instruction 32 KiB (x8)
+  L2 Unified 1024 KiB (x8)
+  L3 Unified 11264 KiB (x1)
+Load Average: 0.63, 0.54, 0.72
+-------------------------------------------------------------------------------------
+Benchmark                           Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------
+DotProduct<double>/64           0.004 us        0.004 us    155850953 bytes_per_second=212.277G/s n=64
+DotProduct<double>/128          0.010 us        0.010 us     73113102 bytes_per_second=200.232G/s n=128
+DotProduct<double>/256          0.015 us        0.015 us     45589300 bytes_per_second=247.706G/s n=256
+DotProduct<double>/512          0.029 us        0.029 us     24430471 bytes_per_second=266.21G/s n=512
+DotProduct<double>/1024         0.056 us        0.056 us     12490510 bytes_per_second=273.686G/s n=1024
+DotProduct<double>/2048         0.158 us        0.158 us      4413687 bytes_per_second=193.436G/s n=2.048k
+DotProduct<double>/4096         0.676 us        0.676 us      1035341 bytes_per_second=90.2688G/s n=4.096k
+DotProduct<double>/8192          1.33 us         1.33 us       520428 bytes_per_second=91.5784G/s n=8.192k
+DotProduct<double>/16384         2.71 us         2.71 us       258728 bytes_per_second=89.9407G/s n=16.384k
+DotProduct<double>/32768         5.51 us         5.51 us       127636 bytes_per_second=88.5911G/s n=32.768k
+DotProduct<double>/65536         19.9 us         19.9 us        35225 bytes_per_second=49.1777G/s n=65.536k
+DotProduct<double>/131072        77.7 us         77.7 us         9013 bytes_per_second=25.141G/s n=131.072k
+DotProduct<double>/262144         157 us          157 us         4458 bytes_per_second=24.8915G/s n=262.144k
+DotProduct<double>/524288         330 us          330 us         2129 bytes_per_second=23.6636G/s n=524.288k
+DotProduct<double>/1048576        812 us          812 us          835 bytes_per_second=19.2495G/s n=1048.58k
+```
+
+---
+
+## Is this good or not?
+
+```bash
+$ sudo lshw -class memory
+  *-memory:0
+       description: System Memory
+       physical id: 3d
+       slot: System board or motherboard
+     *-bank:0
+          description: DIMM DDR4 Synchronous 2666 MHz (0.4 ns)
+          physical id: 0
+          serial: #@
+          slot: CPU1_DIMM_A0
+          size: 8GiB
+          width: 64 bits
+          clock: 2666MHz (0.4ns)
+```
+
+So our RAM can transfer 8bytes at 2.666Ghz--19.2GB/second.
+
+---
+
+## Execise
+
+Determine the size of the lowest level cache on your machine.
+
+Can you empirically observe cache effects?
+
+Hint: Use the `DenseRange` option.
+
+---
+
 ## Long tail `google/benchmark`
 
 If you have root, you can decrease run-to-run variance via 
@@ -773,6 +847,41 @@ If you have root, you can decrease run-to-run variance via
 ```
 $ sudo cpupower frequency-set --governor performance
 ```
+
+---
+
+# perf + google/benchmark
+
+```
+$ perf record -g ./dot_bench --benchmark_filter=DotProduct\<double
+$ perf annotate -M intel
+Percent│       cmp           rdi,0x2                                                                                         ▒
+       │     ↓ jbe           795                                                                                             ▒
+  0.30 │       xor           eax,eax                                                                                         ▒
+  0.04 │       vxorpd        xmm0,xmm0,xmm0                                                                                  ▒
+       │       nop                                                                                                           ◆
+       │     d += a[i]*b[i];                                                                                                 ▒
+ 25.30 │2e0:┌─→vmovupd       ymm2,YMMWORD PTR [r13+rax*1+0x0]                                                                ▒
+ 65.58 │    │  vfmadd231pd   ymm0,ymm2,YMMWORD PTR [r12+rax*1]                                                               ▒
+       │    │for (unsigned long long i = 0; i < n; ++i) {                                                                    ▒
+  1.94 │    │  add           rax,0x20                                                                                        ▒
+       │    ├──cmp           rdx,rax                                                                                         ▒
+  1.99 │    └──jne           2e0                                                                                             
+```
+
+Now most of our time is spent in the interesting part of our code.
+
+---
+
+# perf + google/benchmark gotchas
+
+In constrast to our previous examples, the instructions and uops count are *not* stable.
+
+> The number of iterations to run is determined dynamically by running the benchmark a few times and measuring the time taken and ensuring that the ultimate result will be statistically stable.
+--[Google benchmark docs](https://github.com/google/benchmark)
+
+---
+
 
 ---
 
@@ -808,6 +917,46 @@ What to do?
 
 ```
 $ git clone https://github.com/brendangregg/FlameGraph.git
+```
+
+---
+
+## Flamegraph MWE
+
+In a directory with a `perf.data` file, run
+
+```
+$ perf script | ~/FlameGraph/stackcollapse-perf.pl| ~/FlameGraph/flamegraph.pl > flame.svg
+$ firefox flame.svg
+```
+
+I find this hard to remember, so I have an alias:
+
+```
+$ alias | grep flame
+flamegraph='perf script | ~/FlameGraph/stackcollapse-perf.pl| ~/FlameGraph/flamegraph.pl > flame.svg'
+```
+
+---
+
+## Flamegraph example: VTK-m Volume Rendering
+
+```
+$ git clone https://gitlab.kitware.com/vtk/vtk-m.git
+$ cd vtk-m && mkdir build && cd build
+$ cmake ../ -DCMAKE_CXX_COMPILER=g++-10 -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS} -march=native -fno-omit-frame-pointer -Wfatal-errors -ffast-math -fno-finite-math-only -O3 -g" -DVTKm_ENABLE_EXAMPLES=ON -DVTKm_ENABLE_OPENMP=ON -DVTKm_ENABLE_TESTING=OFF -G Ninja  
+$ ninja
+$ perf stat -d ./examples/demo/Demo
+$ perf record -g ./examples/demo/Demo
+```
+
+---
+
+## Generate a stack
+
+```
+$ perf script | ~/FlameGraph/stackcollapse-perf.pl > out.folded
+$ ~/FlameGraph/flamegraph.pl out.folded --title="VTK-m rendering and isocontouring" > flame.svg
 ```
 
 ---

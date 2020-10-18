@@ -961,6 +961,14 @@ $ ~/FlameGraph/flamegraph.pl out.folded --title="VTK-m rendering and isocontouri
 
 ---
 
+## Analyzing only one particular function
+
+```
+$ grep BVHTraverser out.folded | ~/FlameGraph/flamegraph.pl > flame.svg
+```
+
+---
+
 ## TODO:
 
 - Example in another language

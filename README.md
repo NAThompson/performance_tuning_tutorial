@@ -913,6 +913,14 @@ What to do?
 
 ---
 
+Flamegraphs present *sorted* unique stack frames, width drawn proportional to samples in that frame/total samples.
+
+Sorting the stack frames means the x-axis is not a time axis! Great for multithreaded code.
+
+y-axis is that callstack.
+
+---
+
 ## Flamegraphs
 
 ```
@@ -937,6 +945,9 @@ $ alias | grep flame
 flamegraph='perf script | ~/FlameGraph/stackcollapse-perf.pl| ~/FlameGraph/flamegraph.pl > flame.svg'
 ```
 
+(This gets simpler on [newer kernels](http://www.brendangregg.com/blog/2016-10-21/linux-efficient-profiler.html))
+
+
 ---
 
 ## Flamegraph example: VTK-m Volume Rendering
@@ -944,7 +955,9 @@ flamegraph='perf script | ~/FlameGraph/stackcollapse-perf.pl| ~/FlameGraph/flame
 ```
 $ git clone https://gitlab.kitware.com/vtk/vtk-m.git
 $ cd vtk-m && mkdir build && cd build
-$ cmake ../ -DCMAKE_CXX_COMPILER=g++-10 -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS} -march=native -fno-omit-frame-pointer -Wfatal-errors -ffast-math -fno-finite-math-only -O3 -g" -DVTKm_ENABLE_EXAMPLES=ON -DVTKm_ENABLE_OPENMP=ON -DVTKm_ENABLE_TESTING=OFF -G Ninja  
+$ cmake ../ -DCMAKE_CXX_COMPILER=g++-10 -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_STANDARD=17 \
+   -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS} -march=native -fno-omit-frame-pointer -Wfatal-errors -ffast-math -fno-finite-math-only -O3 -g" \ 
+   -DVTKm_ENABLE_EXAMPLES=ON -DVTKm_ENABLE_OPENMP=ON -DVTKm_ENABLE_TESTING=OFF -G Ninja  
 $ ninja
 $ perf stat -d ./examples/demo/Demo
 $ perf record -g ./examples/demo/Demo
@@ -966,6 +979,12 @@ $ ~/FlameGraph/flamegraph.pl out.folded --title="VTK-m rendering and isocontouri
 ```
 $ grep BVHTraverser out.folded | ~/FlameGraph/flamegraph.pl > flame.svg
 ```
+
+---
+
+## perf in other languages and contexts
+
+See [Brendan Gregg's](https://youtu.be/tAY8PnfrS_k) YOW! keynote for Java performance analysis using this workflow.
 
 ---
 

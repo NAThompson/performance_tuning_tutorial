@@ -915,9 +915,11 @@ What to do?
 
 Flamegraphs present *sorted* unique stack frames, width drawn proportional to samples in that frame/total samples.
 
-Sorting the stack frames means the x-axis is not a time axis! Great for multithreaded code.
+Sorting the stack frames means the x-axis is not a time axis! Great for multithreaded code. x-axis is sorted alphabetically.
 
 y-axis is that callstack.
+
+See the [paper](https://queue.acm.org/detail.cfm?id=2927301).
 
 ---
 
@@ -945,9 +947,6 @@ $ alias | grep flame
 flamegraph='perf script | ~/FlameGraph/stackcollapse-perf.pl| ~/FlameGraph/flamegraph.pl > flame.svg'
 ```
 
-(This gets simpler on [newer kernels](http://www.brendangregg.com/blog/2016-10-21/linux-efficient-profiler.html))
-
-
 ---
 
 ## Flamegraph example: VTK-m Volume Rendering
@@ -965,11 +964,72 @@ $ perf record -g ./examples/demo/Demo
 
 ---
 
+# Step by step: `perf script`
+
+Dumps all recorded stack traces
+
+```
+$ perf script 
+perf 20820 510465.112358:          1 cycles: 
+        ffffffff9f277a8a native_write_msr+0xa ([kernel.kallsyms])
+        ffffffff9f20d7ed __intel_pmu_enable_all.constprop.31+0x4d ([kernel.kallsyms])
+        ffffffff9f20dc29 intel_tfa_pmu_enable_all+0x39 ([kernel.kallsyms])
+        ffffffff9f207aec x86_pmu_enable+0x11c ([kernel.kallsyms])
+        ffffffff9f40ac26 ctx_resched+0x96 ([kernel.kallsyms])
+        ffffffff9f415562 perf_event_exec+0x182 ([kernel.kallsyms])
+        ffffffff9f4e65e2 setup_new_exec+0xc2 ([kernel.kallsyms])
+        ffffffff9f55a9ff load_elf_binary+0x3af ([kernel.kallsyms])
+        ffffffff9f4e4441 search_binary_handler+0x91 ([kernel.kallsyms])
+        ffffffff9f4e5696 __do_execve_file.isra.39+0x6f6 ([kernel.kallsyms])
+        ffffffff9f4e5a49 __x64_sys_execve+0x39 ([kernel.kallsyms])
+        ffffffff9f204417 do_syscall_64+0x57 ([kernel.kallsyms])
+```
+
+---
+
+## Step by step: `stackcollapse-perf.pl`
+
+
+Merges duplicate stack samples, sorts them alphabetically:
+
+```
+$ perf script | ~/FlameGraph/stackcollapse-perf.pl > out.folded
+$ cat out.folded | more
+Demo;[libgomp.so.1.0.0] 1856
+Demo;[unknown];[libgomp.so.1.0.0];vtkm::cont::DeviceAdapterAlgorithm<vtkm::cont::DeviceAdapterTagOpenMP>::ScheduleTask 8
+```
+
+
+---
+
 ## Generate a stack
 
 ```
 $ perf script | ~/FlameGraph/stackcollapse-perf.pl > out.folded
 $ ~/FlameGraph/flamegraph.pl out.folded --title="VTK-m rendering and isocontouring" > flame.svg
+```
+
+---
+
+## Convert sorted/unique stack frames into pretty picture
+
+
+```
+$ cat out.folded | ~/FlameGraph/flamegraph.pl
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="2134" onload="init(evt)" viewBox="0 0 1200 2134" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
+org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.ht
+ml for examples. -->
+<!-- NOTES:  -->
+<defs>
+        <linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+                <stop stop-color="#eeeeee" offset="5%" />
+                <stop stop-color="#eeeeb0" offset="95%" />
+        </linearGradient>
+</defs>
+<style type="text/css">
 ```
 
 ---

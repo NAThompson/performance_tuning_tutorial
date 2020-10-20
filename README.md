@@ -618,6 +618,8 @@ $ perf stat -e uops_issued.any,instructions,cycles,cycle_activity.stalls_mem_any
            1.20025 +- 0.00864 seconds time elapsed  ( +-  0.72% )
 ```
 
+---
+
 ## Long tail `perf`
 
 Attaching to a running process or MPI rank
@@ -639,6 +641,46 @@ Solved by reducing sampling frequency:
 ```bash
 $ perf record -F 10 ./dot 100000000
 ```
+
+---
+
+# Exercise
+
+Parallelize the dot product using a framework of your choice.
+
+How does it look under `perf`?
+
+
+---
+
+# Solution: OpenMP
+
+```
+double dot_product(double* a, double* b, size_t n) {
+    double d = 0;
+    #pragma omp parallel for reduction(+:d)
+    for (size_t i = 0; i < n; ++i) {
+        d += a[i]*b[i];
+    }
+    return d;
+}
+```
+
+---
+
+# Solution: C++17
+
+```
+double d = std::transform_reduce(std::execution::par_unseq, a.begin(), a.end(), b.begin(), 0.0);
+```
+
+(FYI: I had to do a [source build](https://github.com/oneapi-src/oneTBB/) of TBB to get this to work.)
+
+---
+
+
+# Solution: C++-17
+
 
 ---
 

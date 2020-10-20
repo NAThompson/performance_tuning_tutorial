@@ -452,7 +452,7 @@ $ cat /proc/cpuinfo | grep avx2
 
 ## Mind bogglement
 
-I could not get any compiler to generate AVX-512 instructions, so I went looking for the story . . .
+I could not get `gcc` to generate AVX-512 instructions, so I went looking for the story . . .
 
 > I hope AVX512 dies a painful death, and that Intel starts fixing real problems instead of trying to create magic instructions to then create benchmarks that they can look good on. I hope Intel gets back to basics: gets their process working again, and concentrate more on regular code that isn't HPC or some other pointless special case.
 
@@ -560,11 +560,49 @@ Use instruction count and uops retired as imperfect metrics for small optimizati
 
 ## Exercise
 
-Compile the example with and without `-ffast-math`.
+Compile the example down to `zmm` fmas, and then `ymm` fmas instructions.
 
 Are instructions or [uops](https://uops.info/) a better proxy of runtime?
 
 ---
+
+## Solution on my machine
+
+Compile to AVX-512 fmas:
+
+```
+$ clang++ -g -fno-omit-frame-pointer -O3 -fno-finite-math-only -march=skylake-avx512 -ffast-math src/mwe.cpp -o dot
+$ perf stat -e uops_issued.any,instructions,cycles,cycle_activity.stalls_mem_any,cycle_activity.stalls_total -r 10 ./dot 10000000
+
+ Performance counter stats for './dot 10000000' (10 runs):
+
+       622,681,589      uops_issued.any                                               ( +-  0.01% )
+       431,202,870      instructions              #    0.10  insn per cycle           ( +-  0.01% )
+     4,175,440,952      cycles                                                        ( +-  0.46% )
+     3,726,101,414      cycle_activity.stalls_mem_any                                     ( +-  0.50% )
+     3,806,997,858      cycle_activity.stalls_total                                     ( +-  0.50% )
+
+           1.17174 +- 0.00450 seconds time elapsed  ( +-  0.38% )
+```
+
+---
+
+## Solution: `ymm` fmas:
+
+```
+$ clang++ -g -fno-omit-frame-pointer -O3 -fno-finite-math-only -march=skylake -ffast-math src/mwe.cpp -o dot
+$ perf stat -e uops_issued.any,instructions,cycles,cycle_activity.stalls_mem_any,cycle_activity.stalls_total -r 10 ./dot 10000000
+
+ Performance counter stats for './dot 10000000' (10 runs):
+
+     1,031,481,668      uops_issued.any                                               ( +-  0.02% )
+       731,032,272      instructions              #    0.16  insn per cycle           ( +-  0.02% )
+     4,461,976,014      cycles                                                        ( +-  0.54% )
+     3,771,980,075      cycle_activity.stalls_mem_any                                     ( +-  0.62% )
+     3,848,764,393      cycle_activity.stalls_total                                     ( +-  0.62% )
+
+           1.20025 +- 0.00864 seconds time elapsed  ( +-  0.72% )
+```
 
 ## Long tail `perf`
 
@@ -1045,6 +1083,24 @@ $ grep BVHTraverser out.folded | ~/FlameGraph/flamegraph.pl > flame.svg
 ## perf in other languages and contexts
 
 See [Brendan Gregg's](https://youtu.be/tAY8PnfrS_k) YOW! keynote for Java performance analysis using this workflow.
+
+---
+
+## VTK-m Volume Rendering with OpenMP
+
+![inline](figures/vtkm_openmp.svg)
+
+---
+
+## VTK-m Volume Rendering (TBB)
+
+![inline](figures/vtkm_tbb_rendering.svg)
+
+---
+
+## VTK-m Volume Rendering with CUDA
+
+![inline](figures/vtkm_cuda.svg)
 
 ---
 

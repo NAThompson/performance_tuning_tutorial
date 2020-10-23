@@ -318,6 +318,15 @@ $ perf stat -d ./dot 100000000
 
 ---
 
+# Exercise
+
+Instead of profiling a dot product, profile a squared norm.
+This halves the number of memory references per flop.
+
+Do you see this reflected in the stalled cycles?
+
+---
+
 ## `perf stat` is great for reporting . . .
 
 But not super actionable.
@@ -696,6 +705,8 @@ double d = std::transform_reduce(std::execution::par_unseq,
 ## Parallel `perf` lessons
 
 `perf` is great at finding *hotspots*, not so great at finding coldspots.
+
+[hotspot](https://github.com/KDAB/hotspot), discussed later, will overcome this problem.
 
 ---
 
@@ -1169,6 +1180,15 @@ See [Brendan Gregg's](https://youtu.be/tAY8PnfrS_k) YOW! keynote for Java perfor
 ## `perf` GUI?
 
 You can use [hotspot](https://github.com/KDAB/hotspot) if you like GUIs.
+
+hotspot also has a number of excellent alternative visualizations created from the `perf.data` file.
+
+---
+
+## hotspot: Off-CPU profiling
+
+Hugely powerful technique in multithreaded environments is off-CPU profiling.
+
 
 ---
 

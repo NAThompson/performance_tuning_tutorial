@@ -997,6 +997,14 @@ In constrast to our previous examples, the instructions and uops count are *not*
 
 ---
 
+## Exercise
+
+Profile a squared norm using google/benchmark.
+
+Compute it in both `float` and `double` precision, determine asymptotic complexity, and the number of bytes/second you are able to process.
+
+---
+
 ## Break?
 
 ---
@@ -1185,10 +1193,56 @@ hotspot also has a number of excellent alternative visualizations created from t
 
 ---
 
-## hotspot: Off-CPU profiling
+## Installing hotspot
 
-Hugely powerful technique in multithreaded environments is off-CPU profiling.
+Download the [AppImage](https://github.com/KDAB/hotspot/releases),
 
+```bash
+$ chmod a+x Hotspot-git.102d4b7-x86_64.AppImage
+$ ./Hotspot-git.102d4b7-x86_64.AppImage
+```
+
+---
+
+## Wait-time analysis (i.e., off-CPU profiling)
+
+Flamegraphs show the expense of *executing instructions*.
+
+In multithreaded environments, we often need to know the expense of *doing nothing*.
+
+Getting an idea of which cores are doing nothing is called "off-CPU profiling", or "wait-time analysis".
+
+---
+
+## Off-CPU profiling with hotppot
+
+![inline](figures/HotSpotOffCPU.png)
+
+---
+
+## Off-CPU profiling: `perf`
+
+```bash
+$ perf record --call-graph dwarf --event cycles --switch-events --event sched:sched_switch --aio --sample-cpu /home/4nt/vtk-m/build/examples/demo/Demo
+```
+
+---
+
+## Off-CPU profiling: `hotspot`
+
+![inline](figures/hotspotoffcpuconfig.png)
+
+---
+
+## Discussion: Is this bad or good?
+
+---
+
+## My conclusion:
+
+Amdahl's law is very harsh--our thread utilization gets destroyed by the lz77 encoding of the PNG.
+
+Not exactly what you hope for when you are computing an isocontour.
 
 ---
 

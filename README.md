@@ -381,6 +381,16 @@ $ perf report -g -M intel --no-children
 
 ---
 
+## More intelligible `perf report`
+
+```bash
+$ perf report --no-children -s dso,sym,srcline -g address
+```
+
+Best to put this in a `perf config`.
+
+---
+
 ## Disassembly
 
 ![inline](figures/dot_disassembly.png)

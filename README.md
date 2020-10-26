@@ -1240,7 +1240,7 @@ Getting an idea of which cores are doing nothing is called "off-CPU profiling", 
 
 ---
 
-## Off-CPU profiling with hotppot
+## Off-CPU profiling with hotspot
 
 ![inline](figures/HotSpotOffCPU.png)
 
@@ -1249,7 +1249,8 @@ Getting an idea of which cores are doing nothing is called "off-CPU profiling", 
 ## Off-CPU profiling: `perf`
 
 ```bash
-$ perf record --call-graph dwarf --event cycles --switch-events --event sched:sched_switch --aio --sample-cpu /home/4nt/vtk-m/build/examples/demo/Demo
+$ perf record --call-graph dwarf --event cycles --switch-events --event sched:sched_switch \
+   --aio --sample-cpu ~/vtk-m/build/examples/demo/Demo
 ```
 
 ---

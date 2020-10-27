@@ -1273,6 +1273,39 @@ Not exactly what you hope for when you are computing an isocontour.
 
 ---
 
+## NVIDIA Profiling
+
+Thus far we've had no visibility into what our GPUs are doing. Let's change that.
+
+---
+
+```
+$ nvprof ~/vtk-m/examples/demo/Demo
+```
+
+---
+
+## Making sense of the text dump
+
+```
+$ sudo apt install libcanberra-gtk-module libcanberra-gtk3-module
+```
+
+With CUDA-11, I had to pick Java-8:
+
+```
+$  sudo update-alternatives --config java
+There are 2 choices for the alternative java (providing /usr/bin/java).
+
+  Selection    Path                                            Priority   Status
+------------------------------------------------------------
+* 0            /usr/lib/jvm/java-11-openjdk-amd64/bin/java      1111      auto mode
+  1            /usr/lib/jvm/java-11-openjdk-amd64/bin/java      1111      manual mode
+  2            /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java   1081      manual mode
+```
+
+---
+
 ## TODO:
 
 - Example in another language

@@ -1279,21 +1279,21 @@ Thus far we've had no visibility into what our GPUs are doing. Let's change that
 
 ---
 
-```
-$ nvprof ~/vtk-m/examples/demo/Demo
+```bash
+$ nvprof -o nvprof.data ~/vtk-m/examples/demo/Demo
+==25566== NVPROF is profiling process 25566, command: ./examples/demo/Demo
+==25566== Generated result file: /home/4nt/vtk-m/build/nvprof.data
+$ nvvp nvprof.data 
 ```
 
 ---
 
-## Making sense of the text dump
+## `nvvp` workarounds
 
-```
+The following are the things I had to do to get `nvvp` to work in CUDA-11:
+
+```bash
 $ sudo apt install libcanberra-gtk-module libcanberra-gtk3-module
-```
-
-With CUDA-11, I had to pick Java-8:
-
-```
 $  sudo update-alternatives --config java
 There are 2 choices for the alternative java (providing /usr/bin/java).
 
@@ -1309,6 +1309,4 @@ There are 2 choices for the alternative java (providing /usr/bin/java).
 ## TODO:
 
 - Example in another language
-- Benchmark a GPU code
 - Heaptrack
-- NVIDIA [perfkit](https://developer.nvidia.com/nvidia-perfkit)?

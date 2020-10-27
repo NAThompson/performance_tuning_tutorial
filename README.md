@@ -1286,6 +1286,12 @@ $ nvprof -o nvprof.data ~/vtk-m/examples/demo/Demo
 $ nvvp nvprof.data 
 ```
 
+--
+
+## `nvvp`
+
+![inline](figures/nvvp_mwe.png)
+
 ---
 
 ## `nvvp` workarounds

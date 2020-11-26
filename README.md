@@ -1029,6 +1029,12 @@ Compute it in both `float` and `double` precision, determine asymptotic complexi
 
 ---
 
+## Exercise
+
+Compare interpolation search to binary search use `perf` and `googlebenchmark`.
+
+---
+
 ## Break?
 
 ---

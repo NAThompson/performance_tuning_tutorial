@@ -105,7 +105,7 @@ data  Desktop  Documents  Downloads  Music  Pictures  Public  Templates  TIS  Vi
 
 ## Access `perf`:
 
-`perf` is available on Summit (summit.olcf.ornl.gov), Rhea (rhea.ccs.ornl.gov), Cori (cori.nersc.gov), Theta (theta.alcf.anl.gov), and the SNS nodes (analysis.sns.gov)
+`perf` is available on Summit (summit.olcf.ornl.gov), Rhea (rhea.ccs.ornl.gov), Cori (cori.nersc.gov), Theta (theta.alcf.anl.gov), Andes (andes.olcf.ornl.gov) and the SNS nodes (analysis.sns.gov)
 
 ---
 
@@ -1026,6 +1026,12 @@ In constrast to our previous examples, the instructions and uops count are *not*
 Profile a squared norm using google/benchmark.
 
 Compute it in both `float` and `double` precision, determine asymptotic complexity, and the number of bytes/second you are able to process.
+
+---
+
+## Exercise
+
+Compare interpolation search to binary search use `perf` and `googlebenchmark`.
 
 ---
 

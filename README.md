@@ -105,7 +105,7 @@ data  Desktop  Documents  Downloads  Music  Pictures  Public  Templates  TIS  Vi
 
 ## Access `perf`:
 
-`perf` is available on Summit (summit.olcf.ornl.gov), Rhea (rhea.ccs.ornl.gov), Cori (cori.nersc.gov), Theta (theta.alcf.anl.gov), and the SNS nodes (analysis.sns.gov)
+`perf` is available on Summit (summit.olcf.ornl.gov), Rhea (rhea.ccs.ornl.gov), Cori (cori.nersc.gov), Theta (theta.alcf.anl.gov), Andes (andes.olcf.ornl.gov) and the SNS nodes (analysis.sns.gov)
 
 ---
 

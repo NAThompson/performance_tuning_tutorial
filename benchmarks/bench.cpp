@@ -1,3 +1,4 @@
+#include <iostream>
 #include <vector>
 #include <random>
 #include <algorithm>
@@ -92,6 +93,72 @@ void SortParallel(benchmark::State& state)
 }
 
 BENCHMARK_TEMPLATE(SortParallel, double)->RangeMultiplier(2)->Range(1<<5, 1<<16)->Complexity()->Unit(benchmark::kMicrosecond)->UseManualTime();
+
+
+template <typename T>
+int64_t interpolation_search(T arr[], int64_t size, T key)
+{
+
+    int64_t low = 0;
+    int64_t high = size - 1;
+    int64_t mid;
+
+    while ((arr[high] != arr[low]) && (key >= arr[low]) && (key <= arr[high])) {
+        mid = low + ((key - arr[low]) * (high - low) / (arr[high] - arr[low]));
+
+        if (arr[mid] < key)
+            low = mid + 1;
+        else if (key < arr[mid])
+            high = mid - 1;
+        else
+            return mid;
+    }
+
+    return low;
+}
+
+template<class Real>
+void InterpolationSearch(benchmark::State& state)
+{
+    std::vector<Real> a(state.range(0));
+    std::random_device rd;
+    std::uniform_real_distribution<Real> unif(-1,1);
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        a[i] = unif(rd);
+    }
+    std::sort(a.begin(), a.end());
+
+    for (auto _ : state)
+    {
+        int64_t i = interpolation_search(a.data(), a.size(), unif(rd));
+        benchmark::DoNotOptimize(i);
+    }
+    state.SetComplexityN(state.range(0));
+}
+
+BENCHMARK_TEMPLATE(InterpolationSearch, double)->RangeMultiplier(2)->Range(1<<5, 1<<18)->Complexity()->Unit(benchmark::kMicrosecond);
+
+template<class Real>
+void BinarySearch(benchmark::State& state)
+{
+    std::vector<Real> a(state.range(0));
+    std::random_device rd;
+    std::uniform_real_distribution<Real> unif(-1,1);
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        a[i] = unif(rd);
+    }
+    std::sort(a.begin(), a.end());
+    for (auto _ : state)
+    {
+        auto it = std::upper_bound(a.begin(), a.end(), unif(rd));
+        benchmark::DoNotOptimize(it);
+    }
+    state.SetComplexityN(state.range(0));
+}
+
+BENCHMARK_TEMPLATE(BinarySearch, double)->RangeMultiplier(2)->Range(1<<5, 1<<18)->Complexity()->Unit(benchmark::kMicrosecond);
 
 
 BENCHMARK_MAIN();

@@ -6,6 +6,8 @@ slidenumbers: true
 
 Nick Thompson
 
+^ Thanks for coming. First let's give a shoutout to Matt Wolf for putting this tutorial together, and to Barney Maccabe for putting the support behind it to make it happen.
+
 ---
 
 Session 1: Using `perf`
@@ -18,6 +20,10 @@ $ cd performance_tuning_tutorial
 $ make
 $ ./dot 100000000
 ```
+
+^ This is a tutorial, so definitely follow along. I will be pacing this under the assumption you will be following along, so you'll get bored if you're watching. In addition, at the end of the tutorial we'll do a short quiz, not to stress anyone out, but to solidify the concepts. I hope that'll galvanize us to bring a bit more intensity than usually brought to a six hour training session! If the stakes are too low, we're just gonna waste two good mornings.
+
+^ Please get the notes from github, and attempt to issue the commands.
 
 ---
 
@@ -38,6 +44,8 @@ $ sudo apt install linux-tools-generic
 $ sudo apt install linux-tools-`uname -r`
 ```
 
+^ Installation is pretty easy on Ubuntu.
+
 ---
 
 ## Installing `perf`: CentOS
@@ -51,14 +59,31 @@ $ yum install perf
 ## Installing `perf`: Source build
 
 ```bash
-$ git clone https://github.com/torvalds/linux.git
+$ git clone --depth=1 https://github.com/torvalds/linux.git
 $ cd linux/tools/perf;
-$ uname -r
-5.8.0-48-generic
-$ git checkout v5.8
 $ make
 $ ./perf
 ```
+
+^ I like doing source builds of `perf`. Not only because I often don't have root, but also because `perf` improves over time, so I like to get the latest version.
+
+---
+
+## Installing `perf`: Source build
+
+`perf` depends more on CPU architecture than kernel, so it's ok for the `perf` version not match the kernel.
+
+But if you run into problems, you can check out the kernel version
+
+```
+$ uname -r
+5.8.0-48-generic
+linux$ git checkout v5.8
+linux/tools/perf$ make
+linux/tools/perf$ ./perf
+```
+
+^ `perf` depends more on CPU architecture than the kernel, but if you run into problems running a new `perf` than your kernel, you can look up the kernel you're running and then checkout the `git tag` of the kernel, and build that `perf`. I personally have never had a problem with this.
 
 ---
 
@@ -75,6 +100,8 @@ echo "-1" | sudo tee /proc/sys/kernel/perf_event_paranoid
 sudo chown 4nt /sys/kernel/debug/tracing/uprobe_events
 sudo chmod a+rw /sys/kernel/debug/tracing/uprobe_events
 ```
+
+^ If we have root, we have the ability to extract more information from `perf` traces. Kernel debug symbols are a nice to have, but not a need to have, so if you don't have root, don't fret too much.
 
 ---
 
@@ -101,11 +128,13 @@ data  Desktop  Documents  Downloads  Music  Pictures  Public  Templates  TIS  Vi
        0.003539000 seconds sys
 ```
 
+^ This is the `perf` "hello world".
+
 ---
 
 ## Access `perf`:
 
-`perf` is available on Summit (summit.olcf.ornl.gov), Rhea (rhea.ccs.ornl.gov), Cori (cori.nersc.gov), Theta (theta.alcf.anl.gov), Andes (andes.olcf.ornl.gov) and the SNS nodes (analysis.sns.gov)
+`perf` is available on Summit (summit.olcf.ornl.gov), Cori (cori.nersc.gov), Theta (theta.alcf.anl.gov), Andes (andes.olcf.ornl.gov) and the SNS nodes (analysis.sns.gov)
 
 ---
 
@@ -129,6 +158,10 @@ There are lots of great performance analysis tools (Intel VTune, Score-P, tau, c
 - Not limited to x86: works on ARM and RISC-V as well
 - Samples rather than models your program
 - Doesn't slow your program down
+
+^ I was trained in mathematics, and I love learning math because it feels permanent. The situation in computer science is much worse. For example, if no one decides to write a Fortran compiler that targets the new Apple M1 chip, there's no Fortran on the Apple M1! So learning tools which will last is important to me.
+
+^ `perf` is part of the linux kernel, so it has credibility that it will survive for a long time. It also works on any architecture Linux compiles on, so it's widely available. As a sampling profiler, it relies on statistics, not a model of your program.
 
 ---
 
@@ -332,15 +365,6 @@ $ perf stat -d ./dot 100000000
 
 ---
 
-# Exercise
-
-Instead of profiling a dot product, profile a squared norm.
-This halves the number of memory references per flop.
-
-Do you see this reflected in the stalled cycles?
-
----
-
 ## `perf stat` is great for reporting . . .
 
 But not super actionable.
@@ -462,6 +486,12 @@ a.b = 9.99999e+07
 
 ---
 
+# Exercise
+
+Look at the code of `src/mwe.cpp`. Is it really measuring a dot product?
+
+---
+
 To determine if your CPU has `ymm` registers, check for avx2 instruction support:
 
 ```bash
@@ -540,16 +570,6 @@ Looks like a misattribution of the `jbe`.
 > . .  if you're trying to capture the IP on some PMC event, and there's a delay between the PMC overflow and capturing the IP, then the IP will point to the wrong address. This is skew. Another contributing problem is that micro-ops are processed in parallel and out-of-order, while the instruction pointer points to the resumption instruction, not the instruction that caused the event.
 
 --[Brendan Gregg](http://www.brendangregg.com/perf.html)
-
----
-
-## perf gotchas
-
-`perf` is frustrating when lots of time is spent in kernel calls, but you don't have kernel debug symbols.
-
-This problem is generic to all performance tools, but there has to be a better way!
-
-Note: You can install kernel debug symbols on [Ubuntu](https://wiki.ubuntu.com/Debug%20Symbol%20Packages).
 
 ---
 

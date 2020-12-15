@@ -287,7 +287,7 @@ List of pre-defined events (to be used in -e):
   power/energy-ram/                                  [Kernel PMU event]
 ```
 
-^ Every architecture has a different set of PMCs, so this list will be different for everyone.
+^ Every architecture has a different set of PMCs, so this list will be different for everyone. I like the `power` measurements, since speed is not the only sensible objective we might want to pursue.
 
 ---
 
@@ -315,6 +315,8 @@ a.b = 9.99999e+07
 Hmm . . . 40% LL cache miss rate, yet 1.4 instructions/cycle.
 
 This CPU-bound vs memory-bound is a bit complicated . . .
+
+^ Personally I don't regard CPU-bound vs memory-bound to be an "actionable" way of thinking. We can turn a slow CPU bound program into a fast memory-bound program by just not doing dumb stuff.
 
 ---
 
@@ -348,10 +350,6 @@ a.b = 9.99999e+07
        1.172459000 seconds sys
 ```
 
-1/10th of the cycles are stalled due to memory pressure.
-
-Is this CPU-bound or memory-bound?
-
 ---
 
 ## Kinda painful typing these events: Use `-d` (`--detailed`)
@@ -378,6 +376,73 @@ $ perf stat -d ./dot 100000000
        0.982545000 seconds user
        0.963534000 seconds sys
 ```
+
+---
+
+## `perf stat -d` output on Andes
+
+```
+[nthompson@andes-login1]~/performance_tuning_tutorial% perf stat -d ./dot 1000000000
+a.b = 1e+09
+
+ Performance counter stats for './dot 1000000000':
+
+          2,242.43 msec task-clock:u              #    0.999 CPUs utilized
+                 0      context-switches:u        #    0.000 K/sec
+                 0      cpu-migrations:u          #    0.000 K/sec
+             8,456      page-faults:u             #    0.004 M/sec
+     2,972,264,893      cycles:u                  #    1.325 GHz                      (29.99%)
+         1,366,982      stalled-cycles-frontend:u #    0.05% frontend cycles idle     (30.02%)
+       747,429,126      stalled-cycles-backend:u  #   25.15% backend cycles idle      (30.07%)
+     3,499,896,128      instructions:u            #    1.18  insn per cycle
+                                                  #    0.21  stalled cycles per insn  (30.06%)
+       749,888,957      branches:u                #  334.410 M/sec                    (30.02%)
+             9,206      branch-misses:u           #    0.00% of all branches          (29.98%)
+     1,108,395,106      L1-dcache-loads:u         #  494.284 M/sec                    (29.97%)
+        36,998,921      L1-dcache-load-misses:u   #    3.34% of all L1-dcache accesses  (29.97%)
+                 0      LLC-loads:u               #    0.000 K/sec                    (29.97%)
+                 0      LLC-load-misses:u         #    0.00% of all LL-cache accesses  (29.97%)
+
+       2.244079417 seconds time elapsed
+
+       1.000742000 seconds user
+       1.214037000 seconds sys
+```
+
+^ Lots of backend cycles stalled in this one. This could be from high latency operations like divisions or from slow memory accesses.
+
+---
+
+## `perf stat` on a different type of computation
+
+```
+[nthompson@andes-login1]~/performance_tuning_tutorial% perf stat -d git archive --format=tar.gz --prefix=HEAD/ HEAD > HEAD.tar.gz
+
+ Performance counter stats for 'git archive --format=tar.gz --prefix=HEAD/ HEAD':
+
+             99.81 msec task-clock:u              #    0.795 CPUs utilized
+                 0      context-switches:u        #    0.000 K/sec
+                 0      cpu-migrations:u          #    0.000 K/sec
+             1,408      page-faults:u             #    0.014 M/sec
+       276,165,489      cycles:u                  #    2.767 GHz                      (28.07%)
+        72,227,873      stalled-cycles-frontend:u #   26.15% frontend cycles idle     (28.36%)
+        60,614,109      stalled-cycles-backend:u  #   21.95% backend cycles idle      (29.37%)
+       394,352,577      instructions:u            #    1.43  insn per cycle
+                                                  #    0.18  stalled cycles per insn  (30.58%)
+        66,882,750      branches:u                #  670.113 M/sec                    (31.95%)
+         2,974,856      branch-misses:u           #    4.45% of all branches          (32.23%)
+       183,326,327      L1-dcache-loads:u         # 1836.788 M/sec                    (31.19%)
+            49,245      L1-dcache-load-misses:u   #    0.03% of all L1-dcache accesses  (30.05%)
+                 0      LLC-loads:u               #    0.000 K/sec                    (29.37%)
+                 0      LLC-load-misses:u         #    0.00% of all LL-cache accesses  (28.84%)
+
+       0.125489614 seconds time elapsed
+
+       0.092736000 seconds user
+       0.006905000 seconds sys
+```
+
+^ Compression has much higher instruction complexity than a dot product, and we see that reflected here in the stalled frontend cycles. We also have a much higher branch miss rate.
 
 ---
 
@@ -504,7 +569,9 @@ a.b = 9.99999e+07
 
 # Exercise
 
-Look at the code of `src/mwe.cpp`. Is it really measuring a dot product?
+Look at the code of `src/mwe.cpp`. Is it really measuring a dot product? Look at it under `perf report`.
+
+^ The performance of `src/mwe.cpp` is dominated by the cost of initializing data.
 
 ---
 

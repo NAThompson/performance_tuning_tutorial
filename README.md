@@ -490,7 +490,15 @@ $ perf report -g -M intel --no-children
 $ perf report --no-children -s dso,sym,srcline -g address
 ```
 
-Best to put this in a `perf config`.
+Best to put this in a `perf config`:
+
+```
+$ perf config --user report.sort-order=dso,sym,srcline
+$ perf config --user report.children=false
+$ cat ~/.perfconfig
+[report]
+	sort-order = srcline
+```
 
 ---
 

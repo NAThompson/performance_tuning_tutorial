@@ -232,6 +232,10 @@ a.b = 9.99999e+07
        1.247303000 seconds sys
 ```
 
+^ If you have a different `perf` version, you might see `stalled-cycles:frontend` and `stalled-cycles:backend`.
+Stalled frontend cycles are those where instructions could not be decoded fast enough to operate on the data.
+Stalled backend cycles are those where data did not arrive fast enough. Backend cycles stall much more frequently than frontend cycles. See [here](https://stackoverflow.com/questions/22165299) for more details.
+
 ---
 
 ## Learning from `perf stat`
@@ -240,6 +244,16 @@ a.b = 9.99999e+07
 - Our branch miss rate is really good!
 
 But it's not super informative, nor is it actionable.
+
+---
+
+## Aside on 'frontend-cycles' vs 'backend-cycles'
+
+![inline](figures/frontend_v_backend.png)
+
+[Source](https://software.intel.com/content/www/us/en/develop/documentation/vtune-cookbook/top/methodologies/top-down-microarchitecture-analysis-method.html)
+
+^ This is how Intel divvies up the "frontend" and "backend" of the CPU. Frontend is responsible for instruction scheduling and decoding, the backend is for executing instructions and fetching data.
 
 ---
 
@@ -272,6 +286,8 @@ List of pre-defined events (to be used in -e):
   power/energy-pkg/                                  [Kernel PMU event]
   power/energy-ram/                                  [Kernel PMU event]
 ```
+
+^ Every architecture has a different set of PMCs, so this list will be different for everyone.
 
 ---
 

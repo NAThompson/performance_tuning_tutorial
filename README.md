@@ -97,7 +97,7 @@ sudo mount -o remount,mode=755 /sys/kernel/debug
 sudo mount -o remount,mode=755 /sys/kernel/debug/tracing
 echo "0" | sudo tee /proc/sys/kernel/kptr_restrict
 echo "-1" | sudo tee /proc/sys/kernel/perf_event_paranoid
-sudo chown 4nt /sys/kernel/debug/tracing/uprobe_events
+sudo chown `whoami` /sys/kernel/debug/tracing/uprobe_events
 sudo chmod a+rw /sys/kernel/debug/tracing/uprobe_events
 ```
 
@@ -211,8 +211,8 @@ int main(int argc, char** argv) {
 ## Running the MWE under `perf`
 
 ```bash
-$ make dot
-$ perf stat ./dot 100000000
+$ g++ src/mwe.cpp
+$ perf stat ./a.out 100000000
 a.b = 9.99999e+07
 
  Performance counter stats for './dot 100000000':

@@ -7,4 +7,4 @@ dot: src/mwe.cpp
 	$(CXX) $(CPPFLAGS) $< -o $@
 
 clean:
-	rm -f dot perf.data perf.data.old
+	rm -f dot perf.data perf.data.old a.out

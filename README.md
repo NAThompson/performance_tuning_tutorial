@@ -56,6 +56,14 @@ $ yum install perf
 
 ---
 
+## Access `perf`:
+
+`perf` is available on Summit (summit.olcf.ornl.gov), Andes (andes.olcf.ornl.gov) and the SNS nodes (analysis.sns.gov)
+
+I have verified that all the commands of this tutorial work on Andes.
+
+---
+
 ## Installing `perf`: Source build
 
 ```bash
@@ -65,7 +73,13 @@ $ make
 $ ./perf
 ```
 
-^ I like doing source builds of `perf`. Not only because I often don't have root, but also because `perf` improves over time, so I like to get the latest version.
+^ I like doing source builds of `perf`. Not only because I often don't have root, but also because `perf` improves over time, so I like to get the latest version. For example, new hardware counters were recently added for the Power9 architecture.
+
+---
+
+## Please do a source build for this tutorial!
+
+A source build is the first step to owning your tools, and will help us all be on the same page.
 
 ---
 
@@ -128,13 +142,7 @@ data  Desktop  Documents  Downloads  Music  Pictures  Public  Templates  TIS  Vi
        0.003539000 seconds sys
 ```
 
-^ This is the `perf` "hello world".
-
----
-
-## Access `perf`:
-
-`perf` is available on Summit (summit.olcf.ornl.gov), Cori (cori.nersc.gov), Theta (theta.alcf.anl.gov), Andes (andes.olcf.ornl.gov) and the SNS nodes (analysis.sns.gov)
+^ This is the `perf` "hello world". You might see something a bit different depending on your architecture and `perf` version.
 
 ---
 
@@ -155,7 +163,7 @@ There are lots of great performance analysis tools (Intel VTune, Score-P, tau, c
 ## Why `perf`?
 
 - Available on any Linux system
-- Not limited to x86: works on ARM and RISC-V as well
+- Not limited to x86: works on ARM, RISC-V, PowerPC, Sparc
 - Samples rather than models your program
 - Doesn't slow your program down
 
@@ -212,24 +220,27 @@ int main(int argc, char** argv) {
 
 ```bash
 $ g++ src/mwe.cpp
-$ perf stat ./a.out 100000000
-a.b = 9.99999e+07
+$ perf stat ./a.out 1000000000
+a.b = 1e+09
 
- Performance counter stats for './dot 100000000':
+ Performance counter stats for './a.out 1000000000':
 
-          3,782.94 msec task-clock:u              #    1.000 CPUs utilized          
-                 0      context-switches:u        #    0.000 K/sec                  
-                 0      cpu-migrations:u          #    0.000 K/sec                  
-           600,334      page-faults:u             #    0.159 M/sec                  
-     5,746,594,234      cycles:u                  #    1.519 GHz                    
-     8,601,976,669      instructions:u            #    1.50  insn per cycle         
-     1,200,846,522      branches:u                #  317.437 M/sec                  
-            10,231      branch-misses:u           #    0.00% of all branches        
+         14,881.09 msec task-clock:u              #    0.999 CPUs utilized
+                 0      context-switches:u        #    0.000 K/sec
+                 0      cpu-migrations:u          #    0.000 K/sec
+            17,595      page-faults:u             #    0.001 M/sec
+    39,657,728,345      cycles:u                  #    2.665 GHz                      (50.00%)
+    27,974,789,022      stalled-cycles-frontend:u #   70.54% frontend cycles idle     (50.01%)
+     6,000,965,962      stalled-cycles-backend:u  #   15.13% backend cycles idle      (50.01%)
+    88,999,950,765      instructions:u            #    2.24  insn per cycle
+                                                  #    0.31  stalled cycles per insn  (50.00%)
+    15,998,544,101      branches:u                # 1075.093 M/sec                    (49.99%)
+            37,578      branch-misses:u           #    0.00% of all branches          (49.99%)
 
-       3.784742173 seconds time elapsed
+      14.892496917 seconds time elapsed
 
-       2.530558000 seconds user
-       1.247303000 seconds sys
+      13.566616000 seconds user
+       1.199643000 seconds sys
 ```
 
 ^ If you have a different `perf` version, you might see `stalled-cycles:frontend` and `stalled-cycles:backend`.
@@ -240,7 +251,7 @@ Stalled backend cycles are those where data did not arrive fast enough. Backend 
 
 ## Learning from `perf stat`
 
-- 1.5 instructions/cycle means we're probably CPU bound. Right? Right?? (Stay tuned)
+- 2.24 instructions/cycle and large number of stalled frontend cycles means we're probably CPU bound. Right? Right?? (Stay tuned)
 - Our branch miss rate is really good!
 
 But it's not super informative, nor is it actionable.
@@ -312,9 +323,7 @@ a.b = 9.99999e+07
        2.185739000 seconds sys
 ```
 
-Hmm . . . 40% LL cache miss rate, yet 1.4 instructions/cycle.
-
-This CPU-bound vs memory-bound is a bit complicated . . .
+^ Hmm . . . 40% LL cache miss rate, yet 1.4 instructions/cycle. This CPU-bound vs memory-bound is a bit complicated . . .
 
 ^ Personally I don't regard CPU-bound vs memory-bound to be an "actionable" way of thinking. We can turn a slow CPU bound program into a fast memory-bound program by just not doing dumb stuff.
 
@@ -323,6 +332,10 @@ This CPU-bound vs memory-bound is a bit complicated . . .
 ## Custom events: gotchas
 
 These events are not stable across CPU architectures, nor even `perf` versions!
+
+The events expose the functionality of hardware counters; different hardware has different counters.
+
+And someone needs to do the work of exposing them in `perf`!
 
 ---
 
@@ -466,6 +479,14 @@ $ perf report -g -M intel
 
 ---
 
+## Wait, what's actionable about this?
+
+See how half the time is spend in the `std::vector` allocator?
+
+That be a clue.
+
+---
+
 ## Self and Children
 
 - The `Self` column says how much time was taken within the function.
@@ -487,17 +508,16 @@ $ perf report -g -M intel --no-children
 ## More intelligible `perf report`
 
 ```bash
-$ perf report --no-children -s dso,sym,srcline -g address
+$ perf report --no-children -s dso,sym,srcline
 ```
 
 Best to put this in a `perf config`:
 
 ```
-$ perf config --user report.sort-order=dso,sym,srcline
 $ perf config --user report.children=false
 $ cat ~/.perfconfig
 [report]
-	sort-order = srcline
+	children = false
 ```
 
 ---
@@ -538,6 +558,26 @@ Consequence: Lots of time spent moving data around.
 
 ---
 
+## Sidetrack: Fused-multiply add
+
+We'll use the fused-multiply add instruction as a "canonical" example of an instruction which we *want* generated, but due to history, chaos, and dysfunction, generally *isn't*.
+
+---
+
+## Sidetrack: Fused-multiply add
+
+The fma is defined as
+
+$$
+\mathrm{fma}(a,b,c) := \mathrm{rnd}(a*b + c)
+$$
+
+i.e., the multiplication and addition is performanced in a single instruction, with a single rounding.
+
+^ I recently determined `gcc` wasn't generating fma's in our flagship product VTK-m. It's often said that it's meaningless to talk about performance of code compiled without optimizations. Implicit in this statement is another: It's incredibly difficult to convince the compiler to generate optimized assembly! (The Intel compiler is very good in this regard.)
+
+---
+
 ## My preferred CPPFLAGS:
 
 ```
@@ -550,7 +590,10 @@ Key instruction: `vfmadd132pd`; vectorized fused multiply add on `xmm`/`ymm` reg
 
 ---
 
+## Recompile with good flags
+
 ```
+$ make
 $ perf stat ./dot 100000000     
 a.b = 9.99999e+07
 
@@ -566,9 +609,6 @@ a.b = 9.99999e+07
              9,303      branch-misses:u           #    0.00% of all branches        
 
        2.432163719 seconds time elapsed
-
-       1.511267000 seconds user
-       0.915950000 seconds sys
 ```
 
 1/3rd of the instructions/cycle, yet twice as fast, because it ran ~1/5th the number of instructions.
@@ -579,7 +619,35 @@ a.b = 9.99999e+07
 
 Look at the code of `src/mwe.cpp`. Is it really measuring a dot product? Look at it under `perf report`.
 
+Fix it if not.
+
 ^ The performance of `src/mwe.cpp` is dominated by the cost of initializing data.
+^ The data initialization converts integers to floats and does divisions. Removing these increases the performance.
+^ Even once this is done, 40% of the time is spent in data allocation. This indicates a need for a more sophisticated approach.
+
+---
+
+## Register width
+
+- The 8008 architecture from 1972 had 8 bit registers, now vaguely resembling our current `al` register.
+
+- 16 bit registers were added to the 8086 in 1972; now labelled `ax`.
+
+- 32 bit registers on the 80386 architecture in 1985; these are now prefixed with `e`, such as the `eax`, `ebx`, so on.
+
+- 64 bit registers were added in 2003 for the `x86_64` architecture. They are prefixed with `r`, such as the `rax` and `rbx` registers.
+
+---
+
+## Register width
+
+Compilers utilize the full width of integer registers without much fuss. The situation for floating point registers is much worse.
+
+
+---
+
+## Floating point register width
+
 
 ---
 

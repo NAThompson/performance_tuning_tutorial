@@ -1,5 +1,5 @@
 CXX = g++
-CPPFLAGS = --std=c++11 -g -fno-omit-frame-pointer -O3 -march=native -fno-finite-math-only -ffast-math
+CPPFLAGS = --std=c++11 -g -fno-omit-frame-pointer -O3 -march=native -fno-finite-math-only -ffast-math -fno-inline-small-functions
 
 all: dot
 

@@ -1294,6 +1294,8 @@ $ perf stat -d ./examples/demo/Demo
 $ perf record -g ./examples/demo/Demo
 ```
 
+Note: If you have a huge program you'd like to profile, compile it now and follow along!
+
 ---
 
 # Step by step: `perf script`

@@ -81,6 +81,14 @@ $ ./perf
 
 A source build is the first step to owning your tools, and will help us all be on the same page.
 
+Note: On a fresh Ubuntu install, I also needed:
+
+```
+$ sudo apt install -y bison flex
+```
+
+but this is unnecessary on Andes.
+
 ---
 
 ## Installing `perf`: Source build
@@ -538,12 +546,14 @@ $ cat ~/.perfconfig
 
 ---
 
-## Detour: System V ABI
+## Detour: System V ABI (Linux)
 
+- Floating point arguments are passed in registers `xmm0-xmm7`.
+- Integer parameters are passed in registers `rdi`, `rsi`, `rdx`, `rcx`, `r8`, and `r9`, in that order.
 - A floating point return value is placed in register `xmm0`.
-- The first integer argument is placed in `rdi`
-- The second integer argument is placed in `rsi`
-- The third integer argument is placed in `rdx`
+- Integer return values are placed in `rax`.
+
+Knowing this makes your godbolt's a bit easier to read!
 
 ---
 
@@ -613,6 +623,7 @@ a.b = 9.99999e+07
 
 1/3rd of the instructions/cycle, yet twice as fast, because it ran ~1/5th the number of instructions.
 
+
 ---
 
 # Exercise
@@ -648,6 +659,11 @@ Compilers utilize the full width of integer registers without much fuss. The sit
 
 ## Floating point register width
 
+An `xmm` register is 128 bits wide, and can hold 2 doubles, or 4 floats.
+
+AVX2 introduced the `ymm` registers, which are 256 bits wide, and can hold 4 doubles, or 8 floats.
+
+AVX-512 (2016) introduced the `zmm` registers, which can hold 8 doubles or 16 floats.
 
 ---
 
@@ -674,7 +690,7 @@ $ cat /proc/cpuinfo | grep avx2
 
 ## Mind bogglement
 
-I could not get `gcc` to generate AVX-512 instructions, so I went looking for the story . . .
+I couldn't get `gcc` or `clang` to generate AVX-512 instructions, so I went looking for the story . . .
 
 ---
 
@@ -686,9 +702,34 @@ I could not get `gcc` to generate AVX-512 instructions, so I went looking for th
 
 ---
 
+## Vector instructions
+
+Even in the CS people don't like AVX-512, it is still difficult to find the magical incantations required to generate AVX2 instructions.
+
+It generally requires an `-march=native` compiler flag.
+
+---
+
 ## Beautiful assembly:
 
 ![inline](figures/ymm_dot_product.png)
+
+---
+
+## Exercise
+
+On *Andes*, what causes this error?
+
+```
+$ module load intel/19.0.3
+$ icc -march=skylake-avx512 src/mwe.cpp
+$ ./a.out 1000000
+zsh: illegal hardware instruction (core dumped)
+```
+
+---
+
+Compiler defaults are for *compatibility*, not for performance!
 
 ---
 
@@ -711,7 +752,7 @@ I could not get `gcc` to generate AVX-512 instructions, so I went looking for th
 
 ## perf gotchas
 
-```bash
+```
      │         if (absx < 1)
 7.76 │       ucomis xmm1,QWORD PTR [rbp-0x20]
 0.95 │     ↓ jbe    a6
@@ -786,61 +827,13 @@ Use instruction count and uops retired as imperfect metrics for small optimizati
 
 ---
 
-## Exercise
-
-Compile the example down to `zmm` fmas, and then `ymm` fmas instructions.
-
-What does it look like under `perf`?
-
----
-
-## Solution on my machine with clang 9.0.0:
-
-Compile to AVX-512 fmas:
-
-```
-$ clang++ -g -fno-omit-frame-pointer -O3 -fno-finite-math-only -march=skylake-avx512 -ffast-math src/mwe.cpp -o dot
-$ perf stat -e uops_issued.any,instructions,cycles,cycle_activity.stalls_mem_any,cycle_activity.stalls_total -r 10 ./dot 10000000
-
- Performance counter stats for './dot 10000000' (10 runs):
-
-       622,681,589      uops_issued.any                                               ( +-  0.01% )
-       431,202,870      instructions              #    0.10  insn per cycle           ( +-  0.01% )
-     4,175,440,952      cycles                                                        ( +-  0.46% )
-     3,726,101,414      cycle_activity.stalls_mem_any                                     ( +-  0.50% )
-     3,806,997,858      cycle_activity.stalls_total                                     ( +-  0.50% )
-
-           1.17174 +- 0.00450 seconds time elapsed  ( +-  0.38% )
-```
-
----
-
-## Solution: `ymm` fmas:
-
-```
-$ clang++ -g -fno-omit-frame-pointer -O3 -fno-finite-math-only -march=skylake -ffast-math src/mwe.cpp -o dot
-$ perf stat -e uops_issued.any,instructions,cycles,cycle_activity.stalls_mem_any,cycle_activity.stalls_total -r 10 ./dot 10000000
-
- Performance counter stats for './dot 10000000' (10 runs):
-
-     1,031,481,668      uops_issued.any                                               ( +-  0.02% )
-       731,032,272      instructions              #    0.16  insn per cycle           ( +-  0.02% )
-     4,461,976,014      cycles                                                        ( +-  0.54% )
-     3,771,980,075      cycle_activity.stalls_mem_any                                     ( +-  0.62% )
-     3,848,764,393      cycle_activity.stalls_total                                     ( +-  0.62% )
-
-           1.20025 +- 0.00864 seconds time elapsed  ( +-  0.72% )
-```
-
----
-
 ## Long tail `perf`
 
 Attaching to a running process or MPI rank
 
 ```bash
 $ top # find rogue process
-$ perf stat -p 21679
+$ perf stat -d -p `pidof paraview`
 ^C
 ```
 
@@ -864,7 +857,9 @@ Replace the computation of $$\mathbf{a}\cdot \mathbf{b}$$ with the computation o
 
 This halves the number of memory references/flop.
 
-Is it observable under `perf stat`? Is it observable under `perf annotate`?
+Is it observable under `perf stat`?
+
+^ I see a meaningful reduction in L1 cache miss rate.
 
 ---
 
@@ -880,7 +875,7 @@ How does it look under `perf`?
 
 # Solution: OpenMP
 
-```
+```cpp
 double dot_product(double* a, double* b, size_t n) {
     double d = 0;
     #pragma omp parallel for reduction(+:d)

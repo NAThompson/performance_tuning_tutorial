@@ -530,6 +530,15 @@ $ cat ~/.perfconfig
 
 ---
 
+## Some other nice config options
+
+```
+$ perf config --user annotate.disassembler_style=intel
+$ perf config --user report.percent-limit=0.1
+```
+
+---
+
 ## Disassembly
 
 ![inline](figures/dot_disassembly.png)
@@ -1167,7 +1176,7 @@ $ sudo cpupower frequency-set --governor performance
 
 ```
 $ perf record -g ./dot_bench --benchmark_filter=DotProduct\<double
-$ perf annotate -M intel
+$ perf annotate
 Percent│       cmp           rdi,0x2                                                                                         ▒
        │     ↓ jbe           795                                                                                             ▒
   0.30 │       xor           eax,eax                                                                                         ▒
@@ -1277,7 +1286,7 @@ flamegraph='perf script | ~/FlameGraph/stackcollapse-perf.pl| ~/FlameGraph/flame
 ```
 $ git clone https://gitlab.kitware.com/vtk/vtk-m.git
 $ cd vtk-m && mkdir build && cd build
-$ cmake ../ -DCMAKE_CXX_COMPILER=g++-10 -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_STANDARD=17 \
+$ cmake ../ \
    -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS} -march=native -fno-omit-frame-pointer -Wfatal-errors -ffast-math -fno-finite-math-only -O3 -g" \ 
    -DVTKm_ENABLE_EXAMPLES=ON -DVTKm_ENABLE_OPENMP=ON -DVTKm_ENABLE_TESTING=OFF -G Ninja  
 $ ninja
@@ -1418,6 +1427,12 @@ Getting an idea of which cores are doing nothing is called "off-CPU profiling", 
 
 ---
 
+## Other Criticisms of Flamegraphs
+
+See [here](https://stackoverflow.com/a/25870103) for numerous ways for problems to hide from Flamegraphs.
+
+---
+
 ## Off-CPU profiling with hotspot
 
 ![inline](figures/HotSpotOffCPU.png)
@@ -1448,49 +1463,3 @@ $ perf record --call-graph dwarf --event cycles --switch-events --event sched:sc
 Amdahl's law is very harsh--our thread utilization gets destroyed by the lz77 encoding of the PNG.
 
 Not exactly what you hope for when you are computing an isocontour.
-
----
-
-## NVIDIA Profiling
-
-Thus far we've had no visibility into what our GPUs are doing. Let's change that.
-
----
-
-```bash
-$ nvprof -o nvprof.data ~/vtk-m/examples/demo/Demo
-==25566== NVPROF is profiling process 25566, command: ./examples/demo/Demo
-==25566== Generated result file: /home/4nt/vtk-m/build/nvprof.data
-$ nvvp nvprof.data 
-```
-
---
-
-## `nvvp`
-
-![inline](figures/nvvp_mwe.png)
-
----
-
-## `nvvp` workarounds
-
-The following are the things I had to do to get `nvvp` to work in CUDA-11:
-
-```bash
-$ sudo apt install libcanberra-gtk-module libcanberra-gtk3-module
-$  sudo update-alternatives --config java
-There are 2 choices for the alternative java (providing /usr/bin/java).
-
-  Selection    Path                                            Priority   Status
-------------------------------------------------------------
-* 0            /usr/lib/jvm/java-11-openjdk-amd64/bin/java      1111      auto mode
-  1            /usr/lib/jvm/java-11-openjdk-amd64/bin/java      1111      manual mode
-  2            /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java   1081      manual mode
-```
-
----
-
-## TODO:
-
-- Example in another language
-- Heaptrack

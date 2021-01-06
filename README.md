@@ -84,7 +84,7 @@ A source build is the first step to owning your tools, and will help us all be o
 Note: On a fresh Ubuntu install, I also needed:
 
 ```
-$ sudo apt install -y bison flex libslang2-dev systemtap-sdt-dev libnuma-dev libcap-dev
+$ sudo apt install -y bison flex libslang2-dev systemtap-sdt-dev libnuma-dev libcap-dev libbabeltrace-ctf-dev libiberty-dev python-dev
 ```
 
 but this is unnecessary on Andes.

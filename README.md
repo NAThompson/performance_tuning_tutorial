@@ -858,6 +858,12 @@ Solved by reducing sampling frequency:
 $ perf record -F 10 ./dot 100000000
 ```
 
+or compressing (requires compilation with `zstd` support):
+
+```bash
+$ perf record -z ./dot 100000
+```
+
 ---
 
 ## Exercise
@@ -1281,6 +1287,20 @@ flamegraph='perf script | ~/FlameGraph/stackcollapse-perf.pl| ~/FlameGraph/flame
 
 ---
 
+## Viewing flamegraphs
+
+Firefox is best, but no Firefox on Andes. Try ImageMagick:
+
+```
+$ ssh -X `whoami`@andes.olcf.ornl.gov
+$ module load imagemagick/7.0.8-7-py3
+$ magick display flame.svg
+```
+
+
+
+---
+
 ## Flamegraph example: VTK-m Volume Rendering
 
 ```
@@ -1416,6 +1436,13 @@ Download the [AppImage](https://github.com/KDAB/hotspot/releases),
 $ chmod a+x Hotspot-git.102d4b7-x86_64.AppImage
 $ ./Hotspot-git.102d4b7-x86_64.AppImage
 ```
+
+Note: On Andes, use
+
+```bash
+$ ./Hotspot-git.102d4b7-x86_64.AppImage --appimage-extract-and-run
+```
+
 
 ---
 

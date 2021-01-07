@@ -927,7 +927,10 @@ Break?
 
 ---
 
-Session 2: google/benchmark
+## Session 2 Goals
+
+- Learn about google/benchmark
+- Profile entire workflows and generate flamegraphs and timecharts
 
 ---
 

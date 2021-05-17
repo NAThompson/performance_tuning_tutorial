@@ -253,7 +253,13 @@ But it's not super informative, nor is it actionable.
 
 [Source](https://software.intel.com/content/www/us/en/develop/documentation/vtune-cookbook/top/methodologies/top-down-microarchitecture-analysis-method.html)
 
-^ This is how Intel divvies up the "frontend" and "backend" of the CPU. Frontend is responsible for instruction scheduling and decoding, the backend is for executing instructions and fetching data.
+This is how Intel divvies up the "frontend" and "backend" of the CPU. Frontend is responsible for instruction scheduling and decoding, the backend is for executing instructions and fetching data.
+
+---
+
+> The cycles stalled in the back-end are a waste because the CPU has to wait for resources (usually memory) or to finish long latency instructions (e.g. transcedentals - sqrt, reciprocals, divisions, etc.). The cycles stalled in the front-end are a waste because that means that the Front-End does not feed the Back End with micro-operations. This can mean that you have misses in the Instruction cache, or complex instructions that are not already decoded in the micro-op cache. Just-in-time compiled code usually expresses this behavior.
+
+-- [stackoverflow](https://stackoverflow.com/a/29059380/)
 
 ---
 

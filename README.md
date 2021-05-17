@@ -81,31 +81,14 @@ $ ./perf
 
 A source build is the first step to owning your tools, and will help us all be on the same page.
 
-Note: On a fresh Ubuntu install, I also needed:
-
-```
-$ sudo apt install -y bison flex libslang2-dev systemtap-sdt-dev libnuma-dev libcap-dev libbabeltrace-ctf-dev libiberty-dev python-dev
-```
-
-but this is unnecessary on Andes.
-
 ---
 
-## Installing `perf`: Source build
-
-`perf` depends more on CPU architecture than kernel, so it's ok for the `perf` version not match the kernel.
-
-But if you run into problems, you can check out the kernel version
+## Ubuntu Dependencies
 
 ```
-$ uname -r
-5.8.0-48-generic
-linux$ git checkout v5.8
-linux/tools/perf$ make
-linux/tools/perf$ ./perf
+$ sudo apt install -y bison flex libslang2-dev systemtap-sdt-dev \
+   libnuma-dev libcap-dev libbabeltrace-ctf-dev libiberty-dev python-dev
 ```
-
-^ `perf` depends more on CPU architecture than the kernel, but if you run into problems running a new `perf` than your kernel, you can look up the kernel you're running and then checkout the `git tag` of the kernel, and build that `perf`. I personally have never had a problem with this.
 
 ---
 
@@ -209,16 +192,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t n = atoi(argv[1]);
-
     std::vector<double> a(n);
     std::vector<double> b(n);
     for (size_t i = 0; i < n; ++i) {
         a[i] = i;
         b[i] = 1/double(i+3);
     }
-
     double d = dot_product(a.data(), b.data(), n);
-    std::cout << "a.b = " << d << "\n";
+    std::cout << "a·b = " << d << "\n";
 }
 ```
 
@@ -1161,7 +1142,7 @@ So our RAM can transfer 8bytes at 2.666Ghz--19.2GB/second.
 
 ---
 
-## Execise
+## Exercise
 
 Determine the size of the lowest level cache on your machine.
 
@@ -1173,7 +1154,7 @@ Hint: Use the `DenseRange` option.
 
 ## Long tail `google/benchmark`
 
-If you have root, you can decrease run-to-run variance via 
+If you have root, you can decrease run-to-run variance via
 
 ```
 $ sudo cpupower frequency-set --governor performance
@@ -1310,7 +1291,7 @@ $ magick display flame.svg
 $ git clone https://gitlab.kitware.com/vtk/vtk-m.git
 $ cd vtk-m && mkdir build && cd build
 $ cmake ../ \
-   -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS} -march=native -fno-omit-frame-pointer -Wfatal-errors -ffast-math -fno-finite-math-only -O3 -g" \ 
+   -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS} -march=native -fno-omit-frame-pointer -Wfatal-errors -ffast-math -fno-finite-math-only -O3 -g" \
    -DVTKm_ENABLE_EXAMPLES=ON -DVTKm_ENABLE_OPENMP=ON -DVTKm_ENABLE_TESTING=OFF -G Ninja  
 $ ninja
 $ perf stat -d ./examples/demo/Demo
@@ -1326,8 +1307,8 @@ Note: If you have a huge program you'd like to profile, compile it now and follo
 Dumps all recorded stack traces
 
 ```
-$ perf script 
-perf 20820 510465.112358:          1 cycles: 
+$ perf script
+perf 20820 510465.112358:          1 cycles:
         ffffffff9f277a8a native_write_msr+0xa ([kernel.kallsyms])
         ffffffff9f20d7ed __intel_pmu_enable_all.constprop.31+0x4d ([kernel.kallsyms])
         ffffffff9f20dc29 intel_tfa_pmu_enable_all+0x39 ([kernel.kallsyms])

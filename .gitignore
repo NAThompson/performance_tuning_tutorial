@@ -2,3 +2,6 @@ dot
 perf.data
 perf.data.old
 a.out
+*.o
+*.x
+

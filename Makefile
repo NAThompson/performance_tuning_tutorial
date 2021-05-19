@@ -11,4 +11,4 @@ use_asm.x: src/use_asm.cpp
 	$(CXX) -o $@ dot.o $<
 
 clean:
-	rm -f dot *.o perf.data perf.data.old a.out src/*.o src/*.x src/perf.data src/perf.data.old
+	rm -f dot *.x *.o perf.data perf.data.old a.out src/*.o src/*.x src/perf.data src/perf.data.old
